@@ -5,7 +5,8 @@ read_worker_csv <- function(where = ".",
                             app_states_fun = NULL,
                             outlier_fun = NULL,
                             state_filter = 0,
-                            whichApplication = NULL) {
+                            whichApplication = NULL,
+                            config = NULL) {
   # Check obligatory parameters
   if (is.null(whichApplication)) stop("whichApplication is NULL, it should be provided")
   if (is.null(app_states_fun)) stop("app_states_fun should be provided to read_state_csv")
@@ -15,7 +16,7 @@ read_worker_csv <- function(where = ".",
   state.csv <- paste0(where, "/paje.worker_state.csv.gz")
   if (file.exists(state.csv)) {
     starvz_log(paste("Reading", state.csv))
-    dfw <- read_csv(
+    dfw <- starvz_suppressWarnings(read_csv(
       file = state.csv,
       trim_ws = TRUE,
       progress = FALSE,
@@ -40,7 +41,7 @@ read_worker_csv <- function(where = ".",
         Iteration = col_character(),
         Subiteration = col_character()
       )
-    )
+    ))
   } else {
     stop(paste("File", state.csv, "do not exist"))
   }
@@ -70,7 +71,16 @@ read_worker_csv <- function(where = ".",
   if (whichApplication == "qrmumps") {
     dfw <- dfw %>%
       mutate(Value = gsub("_perf.*", "", .data$Value)) %>%
-      mutate(Value = gsub("qrm_", "", .data$Value))
+      mutate(Value = gsub("qrm_", "", .data$Value)) %>%
+      mutate(Value = case_when(
+        grepl("geqrt", Value) ~ "geqrt",
+        grepl("gemqrt", Value) ~ "gemqrt",
+        grepl("tpqrt", Value) ~ "tpqrt",
+        grepl("tpmqrt", Value) ~ "tpmqrt",
+        grepl("tpqrt", Value) ~ "tpqrt",
+        grepl("block_extadd", Value) ~ "block_copy",
+        TRUE ~ Value
+      ))
   }
 
   # Split application and starpu behavior
@@ -107,7 +117,7 @@ read_worker_csv <- function(where = ".",
     starvz_log("This is multi-node trace")
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
       mutate(Node = as.factor(.data$Node)) %>%
       mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
       mutate(Resource = as.factor(.data$Resource))
@@ -163,6 +173,18 @@ read_worker_csv <- function(where = ".",
         Use = TRUE
       ) %>%
       unique()
+    # If config is present try to use it for colors
+    if (!is.null(config)) {
+      tasks_colors <- lapply(config$app_tasks, data.frame, stringsAsFactors = FALSE)
+      config_colors <- bind_rows(tasks_colors, .id = "Value")
+      if (config_colors %>% nrow() > 0) {
+        dfcolors <- dfcolors %>%
+          left_join(config_colors, by = "Value") %>%
+          mutate(Color = ifelse(is.na(.data$color), .data$Color, .data$color)) %>%
+          mutate(Use = ifelse(is.na(.data$use), .data$Use, .data$use)) %>%
+          select(.data$Value, .data$Color, .data$Use)
+      }
+    }
   } else {
     partial_join <- function(x, y, by_x, pattern_y) {
       idx_x <- sapply(y[[pattern_y]], grep, x[[by_x]])
@@ -192,78 +214,61 @@ read_worker_csv <- function(where = ".",
       mutate(Outlier = ifelse(.data$Duration > outlier_fun(.data$Duration), TRUE, FALSE)) %>%
       ungroup()
   } else if (whichApplication == "qrmumps") {
+    starvz_log("Using Regression models to detect task duration anomalies")
 
-    # Step 0: Define the linear models for outlier classification and select one based on ib
-    task_model_ib_other <- function(df) {
-      model <- lm(Duration ~ I(GFlop**(2 / 3)), data = df)
+    # Step 0: Define the linear models for outlier classification
+    model_LR <- function(df) {
+      lm(Duration ~ GFlop, data = df)
     }
-    task_model_ib_1 <- function(df) {
-      model <- lm(Duration ~ GFlop, data = df)
+    model_WLR <- function(df) {
+      lm(Duration ~ GFlop, data = df, weights = 1 / df$GFlop)
+    }
+    model_NLR <- function(df) {
+      lm(Duration ~ I(GFlop**(2 / 3)), data = df)
+    }
+    model_LR_log <- function(df) {
+      lm(log(Duration) ~ log(GFlop), data = df)
+    }
+    # configure the flexmix model to clusterize tasks before running the model_LR_log
+    model_flexmix_log <- function(df) {
+      stepFlexmix(Duration ~ GFlop,
+        data = df, k = 1:2,
+        model = FLXMRglm(log(Duration) ~ log(GFlop)),
+        control = list(nrep = 30)
+      )
     }
 
-    conf <- file.path(where, "conf.txt")
+    # set dummy variable for Cluster
+    Application <- Application %>% mutate(Cluster = 1)
+    Application <- regression_based_outlier_detection(Application, model_WLR, "_WLR", level = 0.95)
+    Application <- regression_based_outlier_detection(Application, model_LR, "_LR", level = 0.95)
+    Application <- regression_based_outlier_detection(Application, model_NLR, "_NLR", level = 0.95)
+    Application <- regression_based_outlier_detection(Application, model_LR_log, "_LR_LOG", level = 0.95)
 
-    if (file.exists(conf)) {
-      ib <- as.integer(gsub("\\D", "", c(grep("qrm_ib", readLines(conf), value = TRUE))))
-    } else {
-      stop(paste("File conf.txt do not exist!"))
-    }
-
-    if (ib != 1) {
-      starvz_log("Attempt to detect anomalies for QRMumps using Duration ~ GFlops**(2/3)")
-      task_model <- task_model_ib_other
-    } else {
-      starvz_log("Attempt to detect anomalies for QRMumps using Duration ~ GFlops")
-      task_model <- task_model_ib_1
-    }
-    # Step 1: apply the model to each task, considering the ResourceType
-    Application %>%
+    # need to create the clusters before calling the function, let's do the clustering for all
+    # types of tasks for now, replacing the dummy Cluster variable
+    Application <- Application %>% select(-.data$Cluster)
+    Application <- Application %>%
       filter(grepl("qrt", .data$Value)) %>%
-      unique() %>%
+      filter(.data$GFlop > 0) %>%
       group_by(.data$ResourceType, .data$Value) %>%
       nest() %>%
-      mutate(model = map(.data$data, task_model)) %>%
-      mutate(Residual = map(.data$model, resid)) %>%
-      mutate(outliers = map(.data$model, function(m) {
-        tibble(Row = names(outlierTest(m, n.max = Inf)$rstudent))
-      })) -> df.pre.outliers
+      mutate(flexmix_model = map(.data$data, model_flexmix_log)) %>%
+      mutate(Cluster = map(.data$flexmix_model, function(m) {
+        # pick the best fitted model according to BIC metric
+        getModel(m, which = "BIC")@cluster
+      })) %>%
+      select(-.data$flexmix_model) %>%
+      unnest(cols = c(.data$Cluster, .data$data)) %>%
+      ungroup() %>%
+      select(.data$JobId, .data$Cluster) %>%
+      full_join(Application, by = "JobId")
+    Application <- regression_based_outlier_detection(Application, model_LR_log, "_FLEXMIX", level = 0.95)
 
-    # Step 1.1: Check if any anomaly was detected
-    if (df.pre.outliers %>% nrow() > 0) {
-
-      # Step 2: identify outliers rows
-      df.pre.outliers %>%
-        select(-.data$Residual) %>%
-        unnest(.data$outliers) %>%
-        mutate(Row = as.integer(.data$Row), Outlier = TRUE) %>%
-        ungroup() -> df.pos.outliers
-
-      # Step 3: unnest all data and tag create the Outiler field according to the Row value
-      df.pre.outliers %>%
-        unnest(.data$data, .data$Residual) %>%
-        # this must be identical to the grouping used in the step 1
-        group_by(.data$Value, .data$ResourceType) %>%
-        mutate(Row = 1:n()) %>%
-        ungroup() %>%
-        # the left join must be by exactly the same as the grouping + Row
-        left_join(df.pos.outliers, by = c("Value", "Row", "ResourceType")) %>%
-        mutate(Outlier = ifelse(is.na(.data$Outlier), FALSE, .data$Outlier)) %>%
-        # remove outliers that are below the regression line
-        mutate(Outlier = ifelse(.data$Outlier & .data$Residual < 0, FALSE, .data$Outlier)) %>%
-        select(-.data$Row) %>%
-        ungroup() -> df.outliers
-
-      # Step 4: regroup the Outlier data to the original Application
-      Application <- Application %>%
-        left_join(df.outliers %>%
-          select(.data$JobId, .data$Outlier), by = c("JobId"))
-    } else {
-      starvz_log("No anomalies were detected.")
-      Application <- Application %>%
-        mutate(Outlier = FALSE)
-    }
+    # Use the Outlier_LR_LOG (log~log) as the default Outlier classification
+    Application <- Application %>% rename(Outlier = .data$Outlier_LR_LOG)
   } else {
-    starvz_log("No outlier detection; use standard model")
+    starvz_log("Outlier detection using standard model")
     Application <- Application %>%
       group_by(.data$Value, .data$ResourceType) %>%
       mutate(Outlier = ifelse(.data$Duration > outlier_fun(.data$Duration), TRUE, FALSE)) %>%
@@ -296,7 +301,7 @@ read_memory_state_csv <- function(where = ".", ZERO = 0) {
   csv_file <- paste0(where, "/paje.memory_state.csv.gz")
   if (file.exists(csv_file)) {
     starvz_log(paste("Reading ", csv_file))
-    dfw <- read_csv(
+    dfw <- starvz_suppressWarnings(read_csv(
       file = csv_file,
       trim_ws = TRUE,
       progress = FALSE,
@@ -310,7 +315,7 @@ read_memory_state_csv <- function(where = ".", ZERO = 0) {
         Depth = col_double(),
         Value = col_character()
       )
-    )
+    ))
   } else {
     starvz_warn(paste("File ", csv_file, " do not exist"))
   }
@@ -325,7 +330,7 @@ read_memory_state_csv <- function(where = ".", ZERO = 0) {
     )
 
   if ((dfw %>% nrow()) == 0) {
-    starvz_warn("After reading Memory States, number of rows is zero.")
+    starvz_log("After reading Memory States, number of rows is zero.")
     return(NULL)
   }
 
@@ -341,7 +346,7 @@ read_memory_state_csv <- function(where = ".", ZERO = 0) {
   if (grepl("CUDA|CPU", unlist(strsplit(firstResourceId, "_"))[2])) {
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
       mutate(Node = as.factor(.data$Node)) %>%
       mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource)))
   } else {
@@ -361,7 +366,7 @@ read_comm_state_csv <- function(where = ".", ZERO = 0) {
   csv_file <- paste0(where, "/paje.comm_state.csv.gz")
   if (file.exists(csv_file)) {
     starvz_log(paste("Reading ", csv_file))
-    dfw <- read_csv(
+    dfw <- starvz_suppressWarnings(read_csv(
       file = csv_file,
       trim_ws = TRUE,
       progress = FALSE,
@@ -375,7 +380,7 @@ read_comm_state_csv <- function(where = ".", ZERO = 0) {
         Depth = col_double(),
         Value = col_character()
       )
-    )
+    ))
   } else {
     starvz_warn(paste("File ", csv_file, " do not exist"))
   }
@@ -390,7 +395,7 @@ read_comm_state_csv <- function(where = ".", ZERO = 0) {
     )
 
   if ((dfw %>% nrow()) == 0) {
-    starvz_warn("After reading Comm States, number of rows is zero.")
+    starvz_log("After reading Comm States, number of rows is zero.")
     return(NULL)
   }
 
@@ -406,7 +411,7 @@ read_comm_state_csv <- function(where = ".", ZERO = 0) {
   if (grepl("mpict", unlist(strsplit(firstResourceId, "_"))[2])) {
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
       mutate(Node = as.factor(.data$Node)) %>%
       mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource)))
   } else {
@@ -426,7 +431,7 @@ read_other_state_csv <- function(where = ".", ZERO = 0) {
   csv_file <- paste0(where, "/paje.other_state.csv.gz")
   if (file.exists(csv_file)) {
     starvz_log(paste("Reading ", csv_file))
-    dfw <- read_csv(
+    dfw <- starvz_suppressWarnings(read_csv(
       file = csv_file,
       trim_ws = TRUE,
       progress = FALSE,
@@ -440,7 +445,7 @@ read_other_state_csv <- function(where = ".", ZERO = 0) {
         Depth = col_double(),
         Value = col_character()
       )
-    )
+    ))
   } else {
     starvz_warn(paste("File ", csv_file, " do not exist"))
   }
@@ -455,7 +460,10 @@ read_other_state_csv <- function(where = ".", ZERO = 0) {
       Type = as.factor(.data$Type)
     )
 
-  if ((dfw %>% nrow()) == 0) starvz_warn("After reading Other States, number of rows is zero.")
+  if ((dfw %>% nrow()) == 0) {
+    starvz_log("After reading Other States, number of rows is zero.")
+    return(NULL)
+  }
 
   # Create three new columns (Node, Resource, ResourceType) - This is StarPU-specific
   # But first, check if this is a multi-node trace (if there is a _, it is a multi-node trace)
@@ -469,7 +477,7 @@ read_other_state_csv <- function(where = ".", ZERO = 0) {
   if (grepl("CUDA|CPU", unlist(strsplit(firstResourceId, "_"))[2])) {
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
       mutate(Node = as.factor(.data$Node)) %>%
       mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource)))
   } else {
@@ -489,7 +497,7 @@ read_vars_set_new_zero <- function(where = ".", ZERO = 0) {
   variable.csv <- paste0(where, "/paje.variable.csv.gz")
   if (file.exists(variable.csv)) {
     starvz_log(paste("Reading ", variable.csv))
-    dfv <- read_csv(variable.csv,
+    dfv <- starvz_suppressWarnings(read_csv(variable.csv,
       trim_ws = TRUE,
       progress = FALSE,
       col_types = cols(
@@ -501,7 +509,7 @@ read_vars_set_new_zero <- function(where = ".", ZERO = 0) {
         Duration = col_double(),
         Value = col_double()
       )
-    )
+    ))
   } else {
     stop(paste("File", variable.csv, "do not exist"))
   }
@@ -512,7 +520,7 @@ read_vars_set_new_zero <- function(where = ".", ZERO = 0) {
     mutate(Start = .data$Start - ZERO, End = .data$End - ZERO) %>%
     # create three new columns (Node, Resource, ResourceType)
     # This is StarPU-specific
-    separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+    separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
     mutate(Node = as.factor(.data$Node)) %>%
     mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
     # abbreviate names so they are smaller
@@ -533,7 +541,7 @@ atree_load <- function(where = ".") {
 
   if (file.exists(atree.csv)) {
     starvz_log(paste("Reading ", atree.csv))
-    df <- read_csv(
+    df <- starvz_suppressWarnings(read_csv(
       file = atree.csv,
       trim_ws = TRUE,
       progress = FALSE,
@@ -541,7 +549,7 @@ atree_load <- function(where = ".") {
         Node = col_integer(),
         DependsOn = col_integer()
       )
-    )
+    ))
   } else {
     starvz_log(paste("File", atree.csv, "do not exist."))
     return(NULL)
@@ -580,14 +588,14 @@ pmtool_bounds_csv_parser <- function(where = ".", ZERO = 0) {
     pm <- read_feather(entities.feather)
   } else if (file.exists(entities.csv)) {
     starvz_log(paste("Reading ", entities.csv))
-    pm <- read_csv(entities.csv,
+    pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
       col_types = cols(
         Alg = col_character(),
         Bound = col_logical(),
         Time = col_double()
       )
-    )
+    ))
     # pmtool gives time in microsecounds
     pm[[3]] <- pm[[3]] / 1000
   } else {
@@ -606,7 +614,7 @@ pmtool_states_csv_parser <- function(where = ".", whichApplication = NULL, Y = N
 
     # sched Tid   worker taskType JobId start duration end
 
-    pm <- read_csv(entities.csv,
+    pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
       col_types = cols(
         sched = col_character(),
@@ -618,7 +626,7 @@ pmtool_states_csv_parser <- function(where = ".", whichApplication = NULL, Y = N
         duration = col_double(),
         end = col_double()
       )
-    )
+    ))
     # pmtool states gives time in milisecounds
 
     pm[[6]] <- pm[[6]] / 1000
@@ -631,7 +639,7 @@ pmtool_states_csv_parser <- function(where = ".", whichApplication = NULL, Y = N
     names(pm)[names(pm) == "duration"] <- "Duration"
     names(pm)[names(pm) == "worker"] <- "ResourceId"
 
-    pm <- separate(data = pm, col = .data$JobId, into = c("JobId", "Tag"), sep = "\\:")
+    pm <- separate(data = pm, col = .data$JobId, into = c("JobId", "Tag"), sep = "\\:", extra = "drop", fill = "right")
 
     fileName <- paste0(where, "/platform_file.rec")
     conn <- file(fileName, open = "r")
@@ -664,6 +672,8 @@ pmtool_states_csv_parser <- function(where = ".", whichApplication = NULL, Y = N
         break
       }
     }
+
+    close(conn)
 
     pm[[3]] <- devices[pm[[3]] + 1]
 
@@ -698,7 +708,7 @@ data_handles_csv_parser <- function(where = ".", ZERO = 0) {
 
   if (file.exists(entities.csv)) {
     starvz_log(paste("Reading ", entities.csv))
-    pm <- read_csv(entities.csv,
+    pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
       col_types = cols(
         Handle = col_character(),
@@ -710,7 +720,7 @@ data_handles_csv_parser <- function(where = ".", ZERO = 0) {
         MPIOwner = col_integer(),
         MPITag = col_integer()
       )
-    )
+    ))
   } else {
     starvz_log(paste("File", entities.csv, "do not exist."))
     return(NULL)
@@ -728,14 +738,14 @@ papi_csv_parser <- function(where = ".", ZERO = 0) {
 
   if (file.exists(entities.csv)) {
     starvz_log(paste("Reading ", entities.csv))
-    pm <- read_csv(entities.csv,
+    pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
       col_types = cols(
         JobId = col_character(),
         PapiEvent = col_character(),
         Value = col_integer()
       )
-    )
+    ))
   } else {
     starvz_log(paste("File", entities.csv, "do not exist."))
     return(NULL)
@@ -764,7 +774,7 @@ tasks_csv_parser <- function(where = ".", ZERO = 0) {
 
   if (file.exists(entities.csv) & file.info(entities.csv)$size > 0) {
     starvz_log(paste("Reading ", entities.csv))
-    pm <- read_csv(entities.csv,
+    pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
       col_types = cols(
         Control = col_character(),
@@ -788,7 +798,7 @@ tasks_csv_parser <- function(where = ".", ZERO = 0) {
         Modes = col_character(),
         Sizes = col_character()
       )
-    )
+    ))
     # sort the data by the submit order
     pm <- pm[with(pm, order(SubmitOrder)), ]
     # Set correct time
@@ -800,23 +810,25 @@ tasks_csv_parser <- function(where = ".", ZERO = 0) {
         EndTime = .data$EndTime - ZERO
       )
 
-    # Tasks have multiple handles, get them in a different structure
-    handles_dep <- pm %>%
-      select(.data$JobId) %>%
-      mutate(
-        Handles = strsplit(pm$Handles, " "),
-        Modes = strsplit(pm$Modes, " "),
-        Sizes = lapply(strsplit(pm$Sizes, " "), as.integer)
-      )
-    # unnest the lists
-    task_handles <- unnest(handles_dep, cols = c(.data$Handles, .data$Modes, .data$Sizes)) %>%
-      mutate(
-        Handles = as.factor(.data$Handles),
-        Modes = as.factor(.data$Modes)
-      )
+    if ("Handles" %in% names(pm)) {
+      # Tasks have multiple handles, get them in a different structure
+      handles_dep <- pm %>%
+        select(.data$JobId) %>%
+        mutate(
+          Handles = strsplit(pm$Handles, " "),
+          Modes = strsplit(pm$Modes, " "),
+          Sizes = lapply(strsplit(pm$Sizes, " "), as.integer)
+        )
+      # unnest the lists
+      task_handles <- unnest(handles_dep, cols = c(.data$Handles, .data$Modes, .data$Sizes)) %>%
+        mutate(
+          Handles = as.factor(.data$Handles),
+          Modes = as.factor(.data$Modes)
+        )
 
-    # We will save the task_handle structre, we can remove these columns
-    pm <- pm %>% select(-.data$Handles, -.data$Modes, -.data$Sizes)
+      # We will save the task_handle structre, we can remove these columns
+      pm <- pm %>% select(-.data$Handles, -.data$Modes, -.data$Sizes)
+    }
   } else {
     starvz_log(paste("File", entities.csv, "do not exist."))
     return(NULL)
@@ -831,7 +843,7 @@ events_csv_parser <- function(where = ".", ZERO = 0) {
   if (file.exists(entities.csv)) {
     starvz_log(paste("Reading ", entities.csv))
 
-    pm <- read_csv(entities.csv,
+    pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
       col_types = cols(
         Nature = col_character(),
@@ -845,7 +857,7 @@ events_csv_parser <- function(where = ".", ZERO = 0) {
         Tid = col_character(),
         Src = col_character()
       )
-    )
+    ))
     # sort the data by the start time
     pm <- pm[with(pm, order(Start)), ]
 
@@ -921,14 +933,14 @@ read_dag <- function(where = ".", Application = NULL, dfl = NULL) {
   dag.csv <- paste0(where, "/dag.csv.gz")
   if (file.exists(dag.csv)) {
     starvz_log(paste("Reading ", dag.csv))
-    dfdag <- read_csv(dag.csv,
+    dfdag <- starvz_suppressWarnings(read_csv(dag.csv,
       trim_ws = TRUE,
       progress = FALSE,
       col_types = cols(
         Node = col_integer(),
         DependsOn = col_integer()
       )
-    )
+    ))
   } else {
     starvz_warn(paste("File", dag.csv, "do not exist"))
     return(NULL)
@@ -968,7 +980,7 @@ read_dag <- function(where = ".", Application = NULL, dfl = NULL) {
       select(-.data$Container, -.data$Origin) %>%
       # 2. Dest becomes ResourceId for these MPI tasks
       rename(ResourceId = .data$Dest) %>%
-      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+      separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
       mutate(Node = as.factor(.data$Node)) %>%
       mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource)))
     dfdag <- dfdags %>% bind_rows(dfdagl)
@@ -990,7 +1002,7 @@ read_links <- function(where = ".", ZERO = 0) {
   link.csv <- paste0(where, "/paje.link.csv.gz")
   if (file.exists(link.csv)) {
     starvz_log(paste("Reading ", link.csv))
-    dfl <- read_csv(link.csv,
+    dfl <- starvz_suppressWarnings(read_csv(link.csv,
       trim_ws = TRUE,
       progress = FALSE,
       col_types = cols(
@@ -1004,9 +1016,12 @@ read_links <- function(where = ".", ZERO = 0) {
         Origin = col_character(),
         Dest = col_character(),
         Key = col_character(),
-        Tag = col_character()
+        Tag = col_character(),
+        MPIType = col_character(),
+        Priority = col_integer(),
+        Handle = col_character()
       )
-    )
+    ))
   } else {
     starvz_log(paste("File", link.csv, "do not exist"))
     return(NULL)
@@ -1014,12 +1029,15 @@ read_links <- function(where = ".", ZERO = 0) {
 
   # Check if number of lines is greater than zero
   if ((dfl %>% nrow()) == 0) {
-    starvz_warn("After attempt to read links, number of rows is zero")
+    starvz_log("After attempt to read links, number of rows is zero")
     return(NULL)
   }
 
+  all_cols <- c(MPIType = "", Priority = "", Handle = "")
+
   # Read links
   dfl <- dfl %>%
+    add_column(!!!all_cols[!names(all_cols) %in% names(.)]) %>%
     # the new zero because of the long initialization phase
     mutate(Start = .data$Start - ZERO, End = .data$End - ZERO) %>%
     select(-.data$Nature) %>%
@@ -1029,7 +1047,9 @@ read_links <- function(where = ".", ZERO = 0) {
       Origin = as.factor(.data$Origin),
       Dest = as.factor(.data$Dest),
       Key = as.factor(.data$Key),
-      Tag = as.factor(.data$Tag)
+      Tag = as.factor(.data$Tag),
+      MPIType = as.factor(.data$MPIType),
+      Handle = as.factor(.data$Handle)
     )
 
   return(dfl)

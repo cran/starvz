@@ -6,7 +6,7 @@ abe_cpu_cuda <- function(dfl, debug = FALSE) {
   return(tibble(Result = ret[[1]]$objval))
 }
 
-abe_cpu_cuda_details <- function(dfl, debug = FALSE) {
+abe_cpu_cuda_details <- function(dfl, Colors = NULL, debug = FALSE) {
   node <- dfl %>%
     slice(1) %>%
     pull(.data$Node)
@@ -16,10 +16,10 @@ abe_cpu_cuda_details <- function(dfl, debug = FALSE) {
   lpresult %>% pull(.data$Result) -> result
   lpresult %>%
     select(.data$Types, .data$Values) %>%
-    unnest(.data$Types, .drop = FALSE) %>%
-    unnest(.data$Values, .drop = FALSE) %>%
+    unnest(cols = c(.data$Types)) %>%
+    unnest(cols = c(.data$Values)) %>%
     mutate(
-      Count = result[[1]]$solution[1:nrow(.data)],
+      Count = result[[1]]$solution[1:n()],
       Estimation = TRUE
     ) %>%
     rename(
@@ -36,13 +36,8 @@ abe_cpu_cuda_details <- function(dfl, debug = FALSE) {
     mutate(Estimation = FALSE) %>%
     bind_rows(ret) -> ret
 
-  # Get unique colors
-  dfl %>%
-    select(.data$Value, .data$Color) %>%
-    unique() -> dfcolor
-
   ret %>%
-    left_join(dfcolor, by = c("Value" = "Value")) -> ret
+    left_join(Colors, by = c("Value" = "Value")) -> ret
 
   return(ret)
 }
@@ -215,9 +210,9 @@ hl_per_node_ABE_details <- function(data = NULL) {
 
   data$Application %>%
     filter(grepl("CPU|CUDA", .data$ResourceId)) %>%
-    select(.data$Node, .data$Resource, .data$ResourceType, .data$Duration, .data$Value, .data$Color, .data$Position, .data$Height) %>%
+    select(.data$Node, .data$Resource, .data$ResourceType, .data$Duration, .data$Value, .data$Position, .data$Height) %>%
     group_by(.data$Node) %>%
-    do(abe_cpu_cuda_details(.data)) %>%
+    do(abe_cpu_cuda_details(.data, Colors = data$Colors)) %>%
     ungroup()
 }
 hl_global_cpb <- function(data = NULL) {
@@ -342,7 +337,7 @@ calculate_resource_idleness <- function(dfw = NULL, max_only = TRUE) {
 geom_idleness <- function(data = NULL) {
   if (is.null(data$Application)) stop("data provided for geom_idleness is NULL")
 
-  dfidle <- calculate_resource_idleness(data$Application, !data$config$st$idleness_all)
+  dfidle <- calculate_resource_idleness(data$Application %>% filter(.data$Start >= 0), !data$config$st$idleness_all)
 
   bsize <- data$config$base_size
   expand <- data$config$expand
@@ -445,7 +440,7 @@ geom_cpb_internal <- function(dfw = NULL, value = NULL, desc = NULL, bsize = 22)
           x = value,
           xend = value,
           y = minPos,
-          yend = maxPos
+          yend = maxPos + corr / 1.25
         ),
         aes(
           x = .data$x,
@@ -467,7 +462,7 @@ geom_cpb_internal <- function(dfw = NULL, value = NULL, desc = NULL, bsize = 22)
         label = paste0(desc, " ", round(value, 0)),
         angle = 90,
         color = "black",
-        size = bsize / 4
+        size = bsize / 5
       )
     )
     return(ret)
@@ -520,6 +515,43 @@ geom_abe_internal <- function(pernodeABEdf = NULL,
     }
     return(ret)
   }
+}
+
+#' Create a plot with the solution computed by ABE
+#'
+#' Plot per-node and per-tasktype repartion among resource types
+#'
+#' @param data starvz_data with trace data
+#' @param base_size base_size base font size
+#' @return A ggplot object
+#' @include starvz_data.R
+#' @examples
+#' \donttest{
+#' panel_abe_solution(data = starvz_sample_lu)
+#' }
+#' @export
+panel_abe_solution <- function(data,
+                               base_size = data$config$base_size) {
+  starvz_check_data(data, tables = list(
+    "Colors" = c("Value", "Color", "Use"),
+    "Application" = c("ResourceId", "Node", "Resource", "ResourceType", "Duration", "Value", "Position", "Height")
+  ))
+
+  sol <- hl_per_node_ABE_details(data)
+  nnodes <- length(unique(sol$Node))
+  colors <- extract_colors(data$Application, data$Colors)
+
+  ggplot(data = sol, aes(x = .data$ResourceType, y = .data$Count, fill = .data$Value)) +
+    geom_bar(data = sol %>% filter(.data$Estimation == FALSE), position = "stack", stat = "identity", alpha = .6) +
+    geom_point(data = sol %>% filter(.data$Estimation == TRUE), shape = 21, color = "black", size = 2, stroke = 1, alpha = .7) +
+    facet_wrap(Node ~ Value, scales = "free", nrow = nnodes) +
+    scale_fill_manual(values = colors) +
+    theme_bw(base_size = base_size) +
+    theme(
+      plot.margin = unit(c(0, 0, 0, 0), "cm"),
+      panel.grid = element_blank(),
+      legend.position = "none"
+    )
 }
 
 # Nesi Implementation of ABE

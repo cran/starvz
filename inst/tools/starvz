@@ -25,9 +25,15 @@ Options:
 
   -f, --feather                     # Use feather files intead of parquet (Deprecated?)
   -k, --keep                        # Keep intermediate files on phase1
+  -s, --save                        # Name of the file to save
+  -e, --exclude-tasks TASKLIST      # Exclude tasks from the analysis
+  -t, --use-paje-trace              # Use existing paje.trace and friends (tasks.rec, dag.dot) skipping starpu_fxt_tool
 
-      --git-version                # Shows the git hash
-      --versions                   # Shows R package installed version
+      --git-version                    # Shows the git hash
+      --version                        # Shows R package installed version
+
+      --extra-memory-snaps                 # Create multiple snaps of memory
+      --extra-memory-snaps-step TIME(ms)   # Steps For memory snaps
 
 Report bugs to: <https://github.com/schnorr/starvz/issues>
 StarVZ home page: <https://github.com/schnorr/starvz/>
@@ -42,9 +48,13 @@ fi
 
 STARVZ_EXEC_PHASE_1=1
 STARVZ_EXEC_PHASE_2=1
+STARVZ_EXEC_MEM_SNAPS=0
+STARVZ_EXEC_MEM_SNAPS_STEP=1000
 STARVZ_TRACE_FOLDER=""
-STARVZ_APPLICATION=""
-STARVZ_CONFIG_FILE="$STARVZ_HOME/etc/default.yaml"
+STARVZ_APPLICATION="-"
+STARVZ_CONFIG_FILE=""
+STARVZ_SAVE_FILE=""
+STARVZ_USE_PAJE_TRACE=0
 
 while true; do
         case "$1" in
@@ -84,20 +94,47 @@ while true; do
                         STARVZ_APPLICATION=$2
                         shift 2
                         ;;
+                --save|-s)
+                        STARVZ_SAVE_FILE=$2
+                        shift 2
+                        ;;
                 --config|-c)
                         STARVZ_CONFIG_FILE=$2
                         shift 2
                         ;;
+                --exclude-tasks|-e)
+                        export STARVZ_EXCLUDE_TASKS=$2
+                        shift 2
+                        ;;
+		--use-paje-trace|-t)
+		        export STARVZ_USE_PAJE_TRACE=1
+		        shift 1
+		        ;;
                 --version)
                         VERSION=$(Rscript -e 'message(packageVersion("starvz"))' 2>&1)
                         echo "StarVZ version $VERSION"
                         exit 0
                         ;;
+                --extra-memory-snaps)
+                        STARVZ_EXEC_PHASE_1=0
+                        STARVZ_EXEC_PHASE_2=0
+                        STARVZ_EXEC_MEM_SNAPS=1
+                        shift 1
+                        ;;
+                --extra-memory-snaps-step)
+                        STARVZ_EXEC_MEM_SNAPS_STEP=$2
+                        shift 2
+                        ;;
                 "")
                         break
                         ;;
                 *)
-                        STARVZ_TRACE_FOLDER=$1
+                        # Make it absolute
+                        STARVZ_TRACE_FOLDER=$(cd $1; pwd)
+                        # if no configuration file was set yet try a config inside trace folder
+                        if [[ -z "$STARVZ_CONFIG_FILE" ]]; then
+                          STARVZ_CONFIG_FILE="$STARVZ_TRACE_FOLDER/config.yaml"
+                        fi
                         shift 1
                         ;;
         esac
@@ -109,11 +146,30 @@ if [ ! -r "$STARVZ_TRACE_FOLDER" ]; then
         exit 1
 fi
 
+# If config file dont exist fall to default
+if [ ! -r "$STARVZ_CONFIG_FILE" ]; then
+        STARVZ_CONFIG_FILE="$STARVZ_HOME/etc/default.yaml"
+        echo "Warn: Configuration file not found, using default"
+fi
+
 pushd $STARVZ_HOME/tools/
   if [ "$STARVZ_EXEC_PHASE_1" -eq 1 ]; then
-    ./phase1-workflow.sh $STARVZ_TRACE_FOLDER $STARVZ_APPLICATION
+    ./phase1-workflow.sh $STARVZ_TRACE_FOLDER $STARVZ_APPLICATION $STARVZ_CONFIG_FILE
+    p1e=$?
+    if [ $p1e -ne 0 ]
+    then
+        echo "Phase 1 Failed (exit status: $p1e) stopping"
+        exit 1
+    fi
   fi
   if [ "$STARVZ_EXEC_PHASE_2" -eq 1 ]; then
-    ./phase2-workflow.R $STARVZ_TRACE_FOLDER $STARVZ_CONFIG_FILE
+    ./phase2-workflow.R $STARVZ_TRACE_FOLDER $STARVZ_CONFIG_FILE $STARVZ_SAVE_FILE
+  fi
+  if [ "$STARVZ_EXEC_MEM_SNAPS" -eq 1 ]; then
+    if [ ! -r "$STARVZ_TRACE_FOLDER/events_memory.parquet" ]; then
+      echo "MEMSNAPS: Please run starvz with -1 -m options first"
+    else
+      ./phase2-memsnaps.R $STARVZ_TRACE_FOLDER $STARVZ_EXEC_MEM_SNAPS_STEP
+    fi
   fi
 popd

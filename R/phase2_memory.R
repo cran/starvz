@@ -10,6 +10,8 @@
 #' @param x_start X-axis start value
 #' @param x_end X-axis end value
 #' @param combined shows links
+#' @param show_state_total Show the percentage of selected state
+#' @param show_transfer_total Show total transfer amount
 #' @return A ggplot object
 #' @include starvz_data.R
 #' @examples
@@ -21,7 +23,9 @@ panel_memory_state <- function(data = NULL,
                                base_size = data$config$base_size,
                                expand_x = data$config$expand,
                                x_start = data$config$limits$start,
-                               x_end = data$config$limits$end) {
+                               x_end = data$config$limits$end,
+                               show_state_total = data$config$memory$state$total,
+                               show_transfer_total = data$config$memory$transfer$total) {
   starvz_check_data(data, tables = list("Events_memory" = c("Type", "Container", "Handle")))
 
   if (is.null(legend) || !is.logical(legend)) {
@@ -60,13 +64,16 @@ panel_memory_state <- function(data = NULL,
     default_theme(base_size, expand_x)
 
   # Add states and outliers if requested
-  gow <- gow + geom_events(data, dfwapp, combined = combined, tstart = x_start, tend = x_end)
+  gow <- gow + geom_events(data, dfwapp,
+    combined = combined, tstart = x_start, tend = x_end,
+    show_total = show_state_total
+  )
   if (combined) {
     gow <- gow + geom_links(data, dfwapp,
       combined = TRUE, tstart = x_start, tend = x_end,
       arrow_active = data$config$memory$transfers$arrow,
       border_active = data$config$memory$transfers$border,
-      total_active = data$config$memory$transfers$total
+      total_active = show_transfer_total
     )
   }
 
@@ -86,14 +93,21 @@ panel_memory_state <- function(data = NULL,
 
 geom_events <- function(main_data = NULL, data = NULL,
                         combined = FALSE, tstart = NULL,
-                        tend = NULL) {
+                        tend = NULL, show_total = FALSE) {
   if (is.null(data)) stop("data is NULL when given to geom_events")
 
   starvz_log("Starting geom_events")
 
   dfw <- data
 
-  dfl <- main_data$Link
+  dfl <- main_data$Link %>%
+    filter(.data$Type %in% c(
+      "MPI communication",
+      "Intra-node data Fetch",
+      "Intra-node data TaskPreFetch", "Intra-node data PreFetch"
+    )) %>%
+    mutate(Origin = str_replace(.data$Origin, "mpict", "MEMMANAGER0")) %>%
+    mutate(Dest = str_replace(.data$Dest, "mpict", "MEMMANAGER0"))
 
   col_pos_1 <- data.frame(Container = unique(dfl$Dest)) %>%
     arrange(.data$Container) %>%
@@ -173,7 +187,7 @@ geom_events <- function(main_data = NULL, data = NULL,
     legend.spacing.x = unit(2, "mm")
   )
 
-  if (main_data$config$memory$state$total) {
+  if (show_total) {
     select <- main_data$config$memory$state$select
     ms <- dfw %>%
       filter(.data$Type == select, .data$Start < tend, .data$End > tstart) %>%
@@ -212,8 +226,16 @@ geom_links <- function(data = NULL, dfw = NULL, combined = FALSE,
   starvz_check_data(data, tables = list("Link" = c("Dest", "Origin")))
 
   # Get the start info on states because link dont have nodes & Position
+  # Consider that MPI comm are between RAMs (TODO: This is not true for direct inter-nodes GPU transfers)
 
-  dfl <- data$Link
+  dfl <- data$Link %>%
+    filter(.data$Type %in% c(
+      "MPI communication",
+      "Intra-node data Fetch",
+      "Intra-node data TaskPreFetch", "Intra-node data PreFetch"
+    )) %>%
+    mutate(Origin = str_replace(.data$Origin, "mpict", "MEMMANAGER0")) %>%
+    mutate(Dest = str_replace(.data$Dest, "mpict", "MEMMANAGER0"))
 
   starvz_log("Starting geom_links")
 
@@ -283,14 +305,15 @@ geom_links <- function(data = NULL, dfw = NULL, combined = FALSE,
   if (border_active) {
     ret[[length(ret) + 1]] <- geom_segment(
       data = dfl,
-      aes(x = .data$Start, xend = .data$End, y = .data$O_Position, yend = .data$D_Position), arrow = arrow_g, alpha = 0.5, size = 1.5, color = "black"
+      aes(x = .data$Start, xend = .data$End, y = .data$O_Position, yend = .data$D_Position),
+      arrow = arrow_g, alpha = 0.5, size = 1.5, color = "black", show.legend = FALSE
     )
   }
 
   ret[[length(ret) + 1]] <- geom_segment(data = dfl, aes(
     x = .data$Start, xend = .data$End,
     y = .data$O_Position, yend = .data$D_Position, color = .data$Origin
-  ), arrow = arrow_g, alpha = 1.0)
+  ), arrow = arrow_g, alpha = 1.0, show.legend = FALSE)
   selected_dfl <- dfl %>%
     filter(.data$End > tstart) %>%
     filter(.data$Start < tend)
@@ -340,22 +363,29 @@ handles_presence_states <- function(data) {
   fini_end <- unlist(end)
 
   data_state_events %>%
-    group_by(.data$Value, .data$Container) %>%
     mutate(rep = case_when(
       .data$Type == "data state owner" ~ 1,
       .data$Type == "data state invalid" ~ 2,
       TRUE ~ 5
     )) %>%
-    mutate(flow = c(1, diff(.data$rep)), t_diff = c(diff(.data$Start), 1)) %>%
-    mutate(need = .data$flow != 0 & .data$t_diff > 0.001) %>%
-    filter(.data$need == TRUE) %>%
+    group_by(.data$Value, .data$Container) %>%
     mutate(flow = c(1, diff(.data$rep))) %>%
     mutate(need = .data$flow != 0) %>%
     filter(.data$need == TRUE) %>%
+    mutate(flow = c(1, diff(.data$rep)), t_diff = c(diff(.data$Start), 1)) %>%
+    ungroup() %>%
+    mutate(need = .data$flow != 0 & .data$t_diff > 0.001) %>%
+    filter(.data$need == TRUE) %>%
+    group_by(.data$Value, .data$Container) %>%
+    mutate(flow = c(1, diff(.data$rep))) %>%
+    ungroup() %>%
+    mutate(need = .data$flow != 0) %>%
+    filter(.data$need == TRUE) %>%
+    group_by(.data$Value, .data$Container) %>%
     mutate(End = lead(.data$Start, default = unlist(fini_end))) %>%
+    ungroup() %>%
     filter(.data$Type != "data state invalid") %>%
     select(-.data$rep, -.data$flow, -.data$t_diff, -.data$need) %>%
-    ungroup() %>%
     group_by(.data$Value, .data$Container) -> f_data
 
   return(f_data)
@@ -507,10 +537,12 @@ pre_handle_gantt <- function(data, name_func = NULL) {
     name_func() %>%
     select(.data$Container, .data$Start, .data$End, .data$Value, .data$y1, .data$Colour, .data$size, .data$JobId, .data$Modes) %>%
     group_by(.data$Value, .data$Container) %>%
-    mutate(Modes = case_when(is.na(.data$Modes) ~ "1",
-                             .data$Modes=="R" ~ "0",
-                             .data$Modes=="W" ~ "1",
-                             .data$Modes=="RW" ~ "1"))
+    mutate(Modes = case_when(
+      is.na(.data$Modes) ~ "1",
+      .data$Modes == "R" ~ "0",
+      .data$Modes == "W" ~ "1",
+      .data$Modes == "RW" ~ "1"
+    ))
 
   # Processing the Events: Request & Allocation
 
@@ -559,11 +591,12 @@ pre_handle_gantt <- function(data, name_func = NULL) {
   data$Events_memory %>%
     filter(.data$Type == "DriverCopy Start") %>%
     select(.data$Handle, .data$Info, .data$Container) %>%
-    mutate(Info = as.integer(.data$Info)) -> links_handles
+    mutate(Info = as.integer(as.character(.data$Info))) -> links_handles
 
   links <- data$Link %>%
     filter(.data$Type == "Intra-node data Fetch" |
-      .data$Type == "Intra-node data PreFetch") %>%
+      .data$Type == "Intra-node data PreFetch" |
+      .data$Type == "Intra-node data TaskPreFetch") %>%
     select(-.data$Container, -.data$Size) %>%
     mutate(Con = as.integer(substring(.data$Key, 5))) %>%
     select(-.data$Key)
@@ -625,6 +658,12 @@ pre_handle_gantt <- function(data, name_func = NULL) {
 #' @param JobId Select handles of jobid
 #' @param lines vertical lines
 #' @param lHandle select handles
+#' @param name_func function to give names to handles
+#' @param legend enable/disable legends
+#' @param base_size base_size base font size
+#' @param expand_x expand size for scale_x_continuous padding
+#' @param x_start X-axis start value
+#' @param x_end X-axis end value
 #' @return A ggplot object
 #' @include starvz_data.R
 #' @examples
@@ -632,9 +671,30 @@ pre_handle_gantt <- function(data, name_func = NULL) {
 #' panel_handles(data = starvz_sample_lu)
 #' }
 #' @export
-panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
+panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA, name_func = NULL,
+                          legend = data$config$handles$legend,
+                          base_size = data$config$base_size,
+                          expand_x = data$config$expand,
+                          x_start = data$config$limits$start,
+                          x_end = data$config$limits$end) {
+  if (is.null(legend) || !is.logical(legend)) {
+    legend <- TRUE
+  }
+
+  if (is.null(expand_x) || !is.numeric(expand_x)) {
+    expand_x <- 0.05
+  }
+
   if (is.null(data$handle_gantt_data)) {
-    data$handle_gantt_data <- pre_handle_gantt(data)
+    data$handle_gantt_data <- pre_handle_gantt(data, name_func = name_func)
+  }
+
+  if (is.null(x_start) || (!is.na(x_start) && !is.numeric(x_start))) {
+    x_start <- NA
+  }
+
+  if (is.null(x_end) || (!is.na(x_end) && !is.numeric(x_end))) {
+    x_end <- NA
   }
 
   if (is.na(JobId) && is.na(lHandle)) {
@@ -659,12 +719,13 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
     final_links_data <- data$handle_gantt_data$final_links %>% filter(.data$Value %in% selected_handles)
   }
 
-  events_colors <- brewer.pal(n = 6, name = "Dark2")
+  events_colors <- brewer.pal(n = 7, name = "Dark2")
 
   extra <- c(
     "Owner" = "darksalmon",
     "Shared" = "steelblue1",
-    " " = "white"
+    " " = "white",
+    "  " = "white"
   )
 
   data$Colors %>% select(.data$Value, .data$Color) -> lc
@@ -673,21 +734,22 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
     .$Color %>%
     setNames(lc %>% .$Value) -> fc
 
-  fills <- append(fc, extra)
+  fills <- append(extra, fc)
 
   colors <- c(
     "Allocation Request" = events_colors[[1]],
     "Transfer Request" = events_colors[[2]],
     "Intra-node data Fetch" = events_colors[[3]],
     "Intra-node data PreFetch" = events_colors[[4]],
+    "Intra-node data TaskPreFetch" = events_colors[[7]],
     "MPI communication" = events_colors[[5]],
     "Last Job on same Worker" = events_colors[[6]]
   )
 
-  arrow_g <- arrow(length = unit(0.1, "cm"))
+  arrow_g <- arrow(length = unit(rel(0.3), "cm"))
 
   p <- ggplot(data = final_st_data) +
-    theme_bw(base_size = 16) +
+    default_theme(base_size, expand_x) +
     geom_point(
       data = final_events_data,
       aes(
@@ -715,16 +777,16 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
       drop = FALSE,
       limits = names(fills),
       guide = guide_legend(
-        nrow = 3, title.position = "top", order = 1,
+        nrow = 4, title.position = "top", order = 1,
         override.aes =
           list(shape = NA, colour = NA)
       )
     ) +
     scale_alpha_manual(
-      values = c("0"=1, "1"=0.7), guide = 'none'
+      values = c("0" = 1, "1" = 0.7), guide = "none"
     ) +
     scale_linetype_manual(
-      values = c("1"="solid", "0"="dotted"), guide = 'none'
+      values = c("1" = "solid", "0" = "dotted"), guide = "none"
     ) +
     scale_colour_manual(
       name = "Event", values = colors,
@@ -734,6 +796,7 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
         "Transfer Request",
         "Intra-node data Fetch",
         "Intra-node data PreFetch",
+        "Intra-node data TaskPreFetch",
         "MPI communication"
       ),
       limits = c(
@@ -741,19 +804,20 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
         "Transfer Request",
         "Intra-node data Fetch",
         "Intra-node data PreFetch",
+        "Intra-node data TaskPreFetch",
         "MPI communication"
       ),
       guide = guide_legend(
-        nrow = 5, title.position = "top", order = 0,
+        nrow = 6, title.position = "top", order = 0,
         override.aes =
           list(
-            arrow = NA, linetype = 0, shape = c(19, 19, 15, 15, 15),
+            arrow = NA, linetype = 0, shape = c(19, 19, 15, 15, 15, 15),
             yintercept = NA
           )
       )
     ) +
     scale_shape_manual(
-      name = "Event Type", labels = c("Fetch", "Prefetch", "Idle Fetch"), values = c(19, 21, 23),
+      name = "Event Type", labels = c("Fetch", "Prefetch", "TaskPreFetch", "Idle Fetch"), values = c(19, 21, 22, 23),
       guide = guide_legend(nrow = 3, title.position = "top")
     ) +
     # Arrow Border
@@ -768,7 +832,7 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
       arrow = arrow_g,
       colour = "black",
       alpha = 0.8,
-      size = 1.2
+      size = rel(1.4)
     ) +
     geom_segment(
       data = final_links_data,
@@ -780,7 +844,7 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
         colour = .data$Transfer
       ),
       arrow = arrow_g,
-      size = 0.6, show.legend = FALSE
+      size = rel(1), show.legend = FALSE
     ) +
     geom_segment(
       data = final_links_data,
@@ -791,30 +855,28 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
         yend = .data$dest_y + 0.4,
         colour = .data$Transfer
       ),
-      size = 0.6
+      size = rel(1)
     ) +
     scale_y_continuous(
       breaks = data$handle_gantt_data$position$y1 + 0.4,
-      labels = data$handle_gantt_data$position$Container
+      labels = lapply(data$handle_gantt_data$position$Container, function(x) gsub("MEMMANAGER", "MM", x))
     ) +
     # geom_segment(data=handle_end_m,
     #             aes(x = End, y = MemoryNode+1, xend = End, yend = MemoryNode+1.8), color = "red") +
     facet_wrap(.data$Value ~ ., strip.position = "top", ncol = 1) +
-    scale_x_continuous(
-      expand = c(0, 0),
-      # breaks = c(5000, 5185, 5486, 5600, 5676, 5900),
-      labels = function(x) format(x, big.mark = "", scientific = FALSE)
-    ) +
+    # scale_x_continuous(
+    # breaks = c(5000, 5185, 5486, 5600, 5676, 5900),
+    #  labels = function(x) format(x, big.mark = "", scientific = FALSE)
+    # ) +
     # coord_cartesian(xlim=c(5000, 6000)) +
     # scale_color_manual(values=c("red"="red", "blue"="blue")) +
     # scale_colour_identity() +
     theme(
       strip.text.y = element_text(angle = 0),
-      legend.box.margin = margin(-10, -10, -16, -10),
-      legend.background = element_rect(fill = "transparent"),
-      legend.position = "top"
+      legend.box.margin = margin(-10, -10, -rel(1.0), -10),
+      legend.background = element_rect(fill = "transparent")
     ) +
-    labs(x = "Time [ms]", y = "Memory Manager")
+    ylab("Memory Manager")
 
 
   if (!is.na(lines)) {
@@ -830,12 +892,23 @@ panel_handles <- function(data, JobId = NA, lines = NA, lHandle = NA) {
   # 		  fontface="bold",
   # 	  alpha=0.8)
   # }
+
+  p <- p + coord_cartesian(
+    xlim = c(x_start, x_end)
+  )
+
+  if (!legend) {
+    p <- p + theme(legend.position = "none")
+  } else {
+    p <- p + theme(legend.position = "top")
+  }
+
   return(p)
 }
 
 pre_snap <- function(data, f_data) {
   data$Data_handles %>%
-    separate(.data$Coordinates, c("Y", "X")) %>%
+    separate(.data$Coordinates, c("Y", "X"), extra = "drop", fill = "right") %>%
     mutate(X = as.numeric(.data$X), Y = as.numeric(.data$Y)) -> new_handles
 
 
@@ -847,7 +920,7 @@ pre_snap <- function(data, f_data) {
     distinct() %>%
     .$Container -> cont
   hand <- hand %>% mutate(Container = list(cont))
-  hand %>% unnest() -> hand
+  hand %>% unnest(cols = c(.data$Container)) -> hand
 
   f_data %>% mutate(st = ifelse(.data$Type == "data state owner", "Owner", "Shared")) -> d_presence
 
@@ -870,6 +943,11 @@ pre_snap <- function(data, f_data) {
 #' @param selected_time time
 #' @param step for discreate events
 #' @param tasks_size size of tasks in the visualization
+#' @param legend enable/disable legends
+#' @param base_size base_size base font size
+#' @param expand_x expand size for scale_x_continuous padding
+#' @param x_start X-axis start value
+#' @param x_end X-axis end value
 #' @return A ggplot object
 #' @include starvz_data.R
 #' @examples
@@ -877,7 +955,29 @@ pre_snap <- function(data, f_data) {
 #' panel_memory_snap(data = starvz_sample_lu, 100, 10)
 #' }
 #' @export
-panel_memory_snap <- function(data, selected_time, step, tasks_size = 30) {
+panel_memory_snap <- function(data, selected_time, step,
+                              legend = data$config$memory_snap$legend,
+                              base_size = data$config$base_size,
+                              expand_x = data$config$expand,
+                              x_start = data$config$limits$start,
+                              x_end = data$config$limits$end,
+                              tasks_size = 30) {
+  if (is.null(legend) || !is.logical(legend)) {
+    legend <- TRUE
+  }
+
+  if (is.null(x_start) || (!is.na(x_start) && !is.numeric(x_start))) {
+    x_start <- NA
+  }
+
+  if (is.null(x_end) || (!is.na(x_end) && !is.numeric(x_end))) {
+    x_end <- NA
+  }
+
+  if (is.null(expand_x) || !is.numeric(expand_x)) {
+    expand_x <- 0.05
+  }
+
   if (is.null(data$handle_states)) {
     data$handle_states <- handles_presence_states(data)
   }
@@ -900,16 +1000,22 @@ panel_memory_snap <- function(data, selected_time, step, tasks_size = 30) {
   fills <- append(fc, extra)
 
   data$pre_snap[[1]] %>%
+    ungroup() %>%
     filter(.data$Start < selected_time, .data$End > selected_time) %>%
-    right_join(data$pre_snap[[2]], by = c("Value" = "Handle", "Container" = "Container")) -> d_presence
+    right_join(data$pre_snap[[2]], by = c("Value" = "Handle", "Container" = "Container")) %>%
+    mutate(Container = gsub("MEMMANAGER", "MM", .data$Container)) -> d_presence
 
   task_presence <- data$pre_snap[[3]] %>%
+    ungroup() %>%
     filter(.data$Start <= selected_time, .data$End >= selected_time) %>%
-    inner_join(data$pre_snap[[2]], by = c("Handles" = "Handle", "Container" = "Container"))
+    inner_join(data$pre_snap[[2]], by = c("Handles" = "Handle", "Container" = "Container")) %>%
+    mutate(Container = gsub("MEMMANAGER", "MM", .data$Container))
 
   task_presence_alpha <- data$pre_snap[[3]] %>%
+    ungroup() %>%
     filter(.data$Start > selected_time - step, .data$End <= selected_time) %>%
-    inner_join(data$pre_snap[[2]], by = c("Handles" = "Handle", "Container" = "Container"))
+    inner_join(data$pre_snap[[2]], by = c("Handles" = "Handle", "Container" = "Container")) %>%
+    mutate(Container = gsub("MEMMANAGER", "MM", .data$Container))
 
   max_x <- data$pre_snap[[2]] %>%
     arrange(-.data$X) %>%
@@ -945,8 +1051,8 @@ panel_memory_snap <- function(data, selected_time, step, tasks_size = 30) {
     ) +
     scale_shape_manual(
       values = c("R" = 21, "W" = 22, "RW" = 22), drop = FALSE,
-      limits = c("R", "RW"),
-      guide = guide_legend(title.position = "top")
+      limits = c("R", "W", "RW"),
+      guide = guide_legend(title.position = "top", nrow = 2)
     ) +
     scale_fill_manual(
       name = "State", values = fills, drop = FALSE,
@@ -957,32 +1063,232 @@ panel_memory_snap <- function(data, selected_time, step, tasks_size = 30) {
       )
     ) +
     scale_y_reverse(limits = c(max_x + 0.6, -0.6), expand = c(0, 0)) +
-    scale_x_continuous(limits = c(-0.6, max_x + 0.6), expand = c(0, 0)) +
     facet_wrap(~Container) +
+    default_theme(base_size, expand_x) +
     labs(x = "Block X Coordinate", y = "Block Y Coordinate") +
-    theme_bw(base_size = 16) +
     theme(
-      legend.position = "top",
       plot.margin = unit(c(0, 10, 0, 0), "mm"),
-      legend.box.margin = margin(-5, 0, -16, 0),
-      strip.text.x = element_text(margin = margin(.1, 0, .1, 0, "cm")),
+      legend.box.margin = margin(-5, 0, -rel(1), 0),
+      # strip.text.x = element_text(margin = margin(.1, 0, .1, 0, "cm")),
       legend.background = element_rect(fill = "transparent"),
       panel.grid.major = element_blank(),
       panel.grid.minor = element_blank(),
       panel.spacing = unit(1, "mm")
     )
 
+  p <- p + coord_cartesian(
+    xlim = c(x_start, x_end)
+  )
+
+  if (!legend) {
+    p <- p + theme(legend.position = "none")
+  } else {
+    p <- p + theme(legend.position = "top")
+  }
+
   return(p)
 }
 
-multiple_snaps <- function(data, start, end, step, path) {
+#' Create multiple snapshot of memory
+#'
+#' Create multiple visualizations of memory
+#' Useful for continuing views
+#'
+#' @param data starvz_data with trace data
+#' @param start start time
+#' @param end end time
+#' @param step between snaps
+#' @param path path to save files
+#' @param scale for ggsave
+#' @param width for ggsave
+#' @param height for ggsave
+#' @return A ggplot object
+#' @include starvz_data.R
+#' @examples
+#' \dontrun{
+#' multiple_snaps(data = starvz_sample_lu, 100, 200, 10, ".")
+#' }
+#' @export
+multiple_snaps <- function(data = NULL,
+                           start = 0,
+                           end = 1000,
+                           step = 100,
+                           path = ".",
+                           scale = 8,
+                           width = 4,
+                           height = 3) {
+  if (is.null(data$handle_states)) {
+    data$handle_states <- handles_presence_states(data)
+  }
+
+  if (is.null(data$pre_snap)) {
+    data$pre_snap <- pre_snap(data, data$handle_states)
+  }
   se <- seq(start, end, step)
   se <- c(se, end)
   i <- 1
   for (time in se) {
     p <- panel_memory_snap(data, time, step, tasks_size = 40)
     p <- p + ggtitle(paste0("Time: ", as.character(time)))
-    ggsave(paste0(path, i, ".png"), plot = p, scale = 4, width = 4, height = 3, units = "cm")
+    ggsave(paste0(path, i, ".png"), plot = p, scale = scale, width = width, height = height, units = "cm")
     i <- i + 1
   }
+}
+
+#' Heatmap of memory presence
+#'
+#' Visualizate the presence of memory handles across memory managers
+#'
+#' @param data starvz_data with trace data
+#' @param legend enable/disable legends
+#' @param base_size base_size base font size
+#' @param expand_x expand size for scale_x_continuous padding
+#' @return A ggplot object
+#' @include starvz_data.R
+#' @examples
+#' \donttest{
+#' panel_memory_heatmap(data = starvz_sample_lu)
+#' }
+#' @export
+panel_memory_heatmap <- function(data,
+                                 legend = data$config$memory_heatmap$legend,
+                                 base_size = data$config$base_size,
+                                 expand_x = data$config$expand) {
+  if (is.null(data$handle_states)) {
+    data$handle_states <- handles_presence_states(data)
+  }
+
+  if (is.null(legend) || !is.logical(legend)) {
+    legend <- TRUE
+  }
+
+  if (is.null(base_size) || !is.numeric(base_size)) {
+    base_size <- 22
+  }
+
+  if (is.null(expand_x) || !is.numeric(expand_x)) {
+    expand_x <- 0.05
+  }
+
+
+  data$handle_states %>% mutate(Duration = .data$End - .data$Start) -> d_data
+
+  data$Data_handles %>%
+    separate(.data$Coordinates, c("Y", "X"), extra = "drop", fill = "right") %>%
+    mutate(across(c(.data$X, .data$Y), as.integer)) %>%
+    select(.data$Handle, .data$X, .data$Y) -> hand
+  d_data %>%
+    group_by(.data$Value, .data$Container) %>%
+    summarize(sum = sum(.data$Duration), n = n()) %>%
+    inner_join(hand, by = c("Value" = "Handle")) -> d_presence
+  d_presence %>%
+    ungroup() %>%
+    group_by(.data$Value) %>%
+    mutate(per = .data$sum / sum(.data$sum)) %>%
+    mutate(Container = gsub("MEMMANAGER", "MM", .data$Container)) -> d_percent
+
+  max_x <- data[[2]] %>%
+    arrange(-.data$X) %>%
+    slice(1) %>%
+    .$X %>%
+    unlist()
+
+  panel <- ggplot(d_percent, aes(.data$Y, .data$X)) +
+    default_theme(base_size, expand, skip_x = TRUE) +
+    geom_tile(aes(fill = .data$per),
+      colour = "white"
+    ) +
+    scale_fill_gradient(
+      name = "Presence Percentage [%]",
+      breaks = c(0.25, 0.5, 0.75, 1.00),
+      labels = c("25%", "50%", "75%", "100%"),
+      limits = c(0.0, 1),
+      low = "white",
+      high = "steelblue",
+      guide = guide_legend(title.position = "top")
+    ) +
+    scale_y_reverse(limits = c(max_x + 0.6, -0.6), expand = c(0, 0)) +
+    scale_x_continuous(limits = c(-0.6, max_x + 0.6), expand = c(0, 0)) +
+    facet_wrap(~ .data$Container) +
+    labs(x = "Block X Coordinate", y = "Block Y Coordinate")
+
+  if (legend) {
+    panel <- panel + theme(
+      legend.position = "top",
+      panel.spacing = unit(1, "mm")
+    ) +
+      guides(fill = guide_colorbar(barwidth = 15, barheight = 1))
+  } else {
+    panel <- panel + theme(legend.position = "none")
+  }
+
+  return(panel)
+}
+
+
+#' Show the 2D MPI distribution
+#'
+#' Visualizate the data distribution across nodes of 2D structured data
+#'
+#' @param data starvz_data with trace data
+#' @param legend enable/disable legends
+#' @param base_size base_size base font size
+#' @param expand_x expand size for scale_x_continuous padding
+#' @return A ggplot object
+#' @include starvz_data.R
+#' @examples
+#' \donttest{
+#' panel_dist2d(data = starvz_sample_lu)
+#' }
+#' @export
+panel_dist2d <- function(data,
+                         legend = data$config$dist2d$legend,
+                         base_size = data$config$base_size,
+                         expand_x = data$config$expand) {
+  if (is.null(legend) || !is.logical(legend)) {
+    legend <- TRUE
+  }
+
+  if (is.null(base_size) || !is.numeric(base_size)) {
+    base_size <- 22
+  }
+
+  if (is.null(expand_x) || !is.numeric(expand_x)) {
+    expand_x <- 0.05
+  }
+
+  data$Data_handle %>%
+    .$MPIOwner %>%
+    unique() %>%
+    length() -> n_nodes
+
+  panel <- data$Data_handle %>%
+    select(.data$MPIOwner, .data$Coordinates) %>%
+    unique() %>%
+    mutate(MPIOwner = factor(.data$MPIOwner)) %>%
+    separate(.data$Coordinates, c("Y", "X"), extra = "drop", fill = "right") %>%
+    mutate(X = as.numeric(.data$X), Y = as.numeric(.data$Y)) %>%
+    ggplot(aes(x = .data$X, y = .data$Y, fill = .data$MPIOwner)) +
+    default_theme(base_size, expand, skip_x = TRUE) +
+    geom_tile(alpha = 0.8) +
+    geom_text(aes(label = factor(.data$MPIOwner)), size = 2) +
+    scale_y_reverse(expand = c(0.01, 0.01)) +
+    scale_x_continuous(expand = c(0.01, 0.01)) +
+    guides(fill = guide_legend(ncol = 15)) +
+    xlab("Column") +
+    ylab("Line")
+
+  if (requireNamespace("viridis", quietly = TRUE)) {
+    panel <- panel + viridis::scale_fill_viridis(name = "Node", breaks = seq(0, n_nodes), discrete = TRUE)
+  } else {
+    starvz_warn("In panel_dist2d: We suggest package viridis for high number of nodes")
+  }
+
+  if (legend) {
+    panel <- panel + theme(legend.position = "top")
+  } else {
+    panel <- panel + theme(legend.position = "none")
+  }
+
+  return(panel)
 }

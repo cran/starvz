@@ -38,10 +38,13 @@ panel_st <- function(data, agg = data$config$st$aggregation$active,
 #' @param agg Active or not static aggregation
 #' @return A ggplot object
 #' @include starvz_data.R
+#' @usage panel_st_runtime(data,
+#'              agg = data$config$starpu$aggregation$active)
 #' @examples
 #' panel_st_runtime(data = starvz_sample_lu)
 #' @export
-panel_st_runtime <- function(data, agg = data$config$starpu$aggregation$active) {
+panel_st_runtime <- function(data,
+                             agg = data$config$starpu$aggregation$active) {
   if (agg) {
     panel <- panel_st_agg_static(data, runtime = TRUE, step = data$config$starpu$aggregation$step)
   } else {
@@ -61,7 +64,7 @@ panel_st_runtime <- function(data, agg = data$config$starpu$aggregation$active) 
 #' @param expand_x expand size for scale_x_continuous padding
 #' @param expand_y expand size for scale_y_continuous padding
 #' @param selected_nodes select only some nodes in some plots
-#' @param labels control resources labels: [ALL, 1CPU_per_NODE, 1GPU_per_NODE]
+#' @param labels labels: [ALL, 1CPU_per_NODE, 1GPU_per_NODE, FIRST_LAST]
 #' @param alpha alpha value for non-anomalous tasks
 #' @param idleness enable/disable idleness percentages in the plot
 #' @param taskdeps enable/disable task deps path highlighting
@@ -111,6 +114,10 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
     x_end <- NA
   }
 
+  if (is.null(legend) || !is.logical(legend)) {
+    legend <- TRUE
+  }
+
   # Plot
   gow <- ggplot() +
     default_theme(base_size, expand_x)
@@ -119,7 +126,7 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
   # Select Nodes
   if (!is.null(selected_nodes)) {
     data$Y %>%
-      separate(.data$Parent, into = c("Node"), remove = FALSE, extra = "drop") %>%
+      separate(.data$Parent, into = c("Node"), remove = FALSE, extra = "drop", fill = "right") %>%
       filter(.data$Node %in% selected_nodes) %>%
       arrange(.data$Position) %>%
       mutate(New = cumsum(lag(.data$Height, default = 0))) %>%
@@ -147,7 +154,7 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
       labels = labels,
       expand = expand_y,
       rect_outline = data$config$st$rect_outline,
-      alpha_value = alpha
+      alpha_value = alpha, Y = data$Y
     )
   } else {
     gow <- gow + geom_states(App,
@@ -155,7 +162,7 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
       labels = labels,
       expand = expand_y,
       rect_outline = data$config$st$rect_outline,
-      alpha_value = alpha
+      alpha_value = alpha, Y = data$Y
     )
   }
 
@@ -208,7 +215,8 @@ geom_states <- function(dfw = NULL, Show.Outliers = FALSE, StarPU = FALSE, Color
                         labels = "1",
                         expand = 0.05,
                         rect_outline = FALSE,
-                        alpha_value = 0.5) {
+                        alpha_value = 0.5,
+                        Y = NULL) {
   if (is.null(dfw)) stop("data is NULL when given to geom_states")
   if (is.null(Colors)) stop("data is NULL when given to geom_states")
 
@@ -222,9 +230,9 @@ geom_states <- function(dfw = NULL, Show.Outliers = FALSE, StarPU = FALSE, Color
   }
 
   # Y axis breaks and their labels
-  yconfm <- yconf(dfw, labels)
+  yconfm <- yconf(dfw, labels, Y)
   ret[[length(ret) + 1]] <- scale_y_continuous(
-    breaks = yconfm$Position + (yconfm$Height / 3), labels = yconfm$ResourceId,
+    breaks = yconfm$Position + (yconfm$Height / 3), labels = unique(as.character(yconfm$ResourceId)),
     expand = c(expand, 0)
   )
   # Y label
@@ -313,10 +321,29 @@ geom_path_highlight <- function(paths = NULL) {
   return(ret)
 }
 
+#' Create a space-time visualization with node aggregation.
+#'
+#' Use any state trace data to plot the task computations by Node
+#' over the execution time with Gantt Chart. This function aggregate
+#' states within the same resource type.
+#'
+#' @param data starvz_data with trace data
+#' @param x_start X-axis start value
+#' @param x_end X-axis end value
+#' @param step time-step
+#' @param legend option to activate legend
+#' @return A ggplot object
+#' @include starvz_data.R
+#' @examples
+#' \donttest{
+#' panel_st_agg_node(data = starvz_sample_lu)
+#' }
+#' @export
 panel_st_agg_node <- function(data,
                               x_start = data$config$limits$start,
                               x_end = data$config$limits$end,
-                              step = data$config$st$aggregation$step) {
+                              step = data$config$st$aggregation$step,
+                              legend = data$config$st$legend) {
   if (is.null(step) || !is.numeric(step)) {
     if (is.null(data$config$global_agg_step)) {
       agg_step <- 100
@@ -335,6 +362,10 @@ panel_st_agg_node <- function(data,
     x_end <- NA
   }
 
+  if (is.null(legend) || !is.logical(legend)) {
+    legend <- TRUE
+  }
+
   step <- 100
   df <- time_aggregation_prep(data$Application)
   df <- time_aggregation_do(df %>%
@@ -349,7 +380,7 @@ panel_st_agg_node <- function(data,
     select(.data$Node, .data$ResourceType) %>%
     unique() %>%
     mutate(ResourceType.Height = 1) %>%
-    arrange(-.data$Node) %>%
+    arrange(-.data$Node, desc(.data$ResourceType)) %>%
     mutate(ResourceType.Position = cumsum(lag(.data$ResourceType.Height, default = 0) + space) - space) %>%
     as.data.frame() -> df.node_position
 
@@ -379,9 +410,9 @@ panel_st_agg_node <- function(data,
     mutate(MaxPosition = .data$Node.Position + .data$Node.Height + space.between) -> df.pernodeABE
 
   df.node_position %>%
-    group_by(.data$Node) %>%
-    summarize(Node.Position = min(.data$ResourceType.Position) + sum(.data$ResourceType.Height)) %>%
-    mutate(Label = .data$Node) -> yconf
+    group_by(.data$Node, .data$ResourceType) %>%
+    summarize(Node.Position = min(.data$ResourceType.Position) + sum(.data$ResourceType.Height) - 0.5) %>%
+    mutate(Label = paste(.data$ResourceType, .data$Node)) -> yconf
 
   new_state_plot <- df.spatial_prep %>%
     ggplot() +
@@ -439,8 +470,12 @@ panel_st_agg_node <- function(data,
   }
 
   new_state_plot <- new_state_plot +
-    coord_cartesian(xlim = c(x_start, x_end), ylim = c(0, NA))
+    coord_cartesian(xlim = c(x_start, x_end), ylim = c(0, NA)) +
+    guides(fill = guide_legend(nrow = 2))
 
+  if (!legend) {
+    new_state_plot <- new_state_plot + theme(legend.position = "none")
+  }
 
   return(new_state_plot)
 }

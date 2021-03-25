@@ -1,6 +1,6 @@
 #' @include starvz_data.R
 
-geom_mpistates <- function(dfw = NULL, label = "1", expand = 0.05) {
+geom_mpistates <- function(dfw = NULL, label = "1", expand = 0.05, Y = NULL) {
   if (is.null(dfw)) stop("dfw is NULL when given to geom_mpistates")
 
   if (nrow(dfw) == 0) stop("there is no data on MPI states")
@@ -25,7 +25,7 @@ geom_mpistates <- function(dfw = NULL, label = "1", expand = 0.05) {
   ret[[length(ret) + 1]] <- ylab("MPI\nThread")
 
   # Y axis breaks and their labels
-  yconfm <- yconf(dfw, label)
+  yconfm <- yconf(dfw, label, Y)
   ret[[length(ret) + 1]] <- scale_y_continuous(breaks = yconfm$Position + (yconfm$Height / 3), labels = yconfm$ResourceId, expand = c(expand, 0))
 
   # Add states
@@ -56,16 +56,16 @@ geom_mpistates <- function(dfw = NULL, label = "1", expand = 0.05) {
 #' @return A ggplot object
 #' @include starvz_data.R
 #' @examples
-#' panel_mpistate(data=starvz_sample_lu)
+#' panel_mpistate(data = starvz_sample_lu)
 #' @export
 panel_mpistate <- function(data = NULL,
-                           legend = data$config$mpibandwidth$legend,
+                           legend = data$config$mpistate$legend,
                            base_size = data$config$base_size,
                            expand_x = data$config$expand,
                            x_start = data$config$limits$start,
                            x_end = data$config$limits$end,
                            y_start = 0,
-                           y_end = data$config$mpibandwidth$limit) {
+                           y_end = data$config$mpistate$limit) {
   starvz_check_data(data, tables = list("Comm_state" = c("Node")))
 
   if (is.null(x_start) || (!is.na(x_start) && !is.numeric(x_start))) {
@@ -84,11 +84,15 @@ panel_mpistate <- function(data = NULL,
     y_end <- NA
   }
 
+  if (is.null(legend) || !is.logical(legend)) {
+    legend <- TRUE
+  }
+
   # Plot
   gow <- ggplot() +
     default_theme(base_size, expand_x) +
     # Add states and outliers if requested
-    geom_mpistates(data$Comm_state, data$config$mpistate$label, expand_x) +
+    geom_mpistates(data$Comm_state, data$config$mpistate$label, expand_x, Y = data$Y) +
     coord_cartesian(
       xlim = c(x_start, x_end),
       ylim = c(0, y_end)
@@ -144,7 +148,7 @@ concurrent_mpi <- function(data = NULL, out = FALSE) {
     ungroup() %>%
     mutate(Type = "MPI Concurrent") %>%
     rename(ResourceId = {{ col_case }}) %>%
-    separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+    separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
     mutate(Node = as.factor(.data$Node)) %>%
     mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
     select(.data$Start, .data$End, .data$Duration, .data$Node, .data$ResourceId, .data$ResourceType, .data$Type, .data$Value)

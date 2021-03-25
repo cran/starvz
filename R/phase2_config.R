@@ -79,6 +79,7 @@ starvz_default_config <- function() {
 
   config$kiteration$active <- FALSE
   config$kiteration$pernode <- FALSE
+  config$kiteration$subite <- FALSE
 
   config$st$active <- TRUE
   config$st$idleness_all <- TRUE
@@ -138,8 +139,12 @@ starvz_default_config <- function() {
   config$starpu$active <- FALSE
   config$starpu$aggregation$active <- FALSE
 
+  config$node_events$active <- FALSE
+  config$node_events$legend <- TRUE
+
   config$ready$active <- FALSE
   config$ready$limit <- NA
+  config$ready$lack_ready$active <- FALSE
 
   config$lackready$active <- FALSE
 

@@ -105,6 +105,10 @@ starvz_compute_plot_heights <- function(plist, config) {
     P[[length(P) + 1]] <- plist$starpu
     H[[length(H) + 1]] <- config_value(data$config$starpu$height, data$config$guided$starvz_height_resources)
   }
+  if (data$config$node_events$active) {
+    P[[length(P) + 1]] <- plist$node_events
+    H[[length(H) + 1]] <- config_value(data$config$node_events$height, data$config$guided$starvz_height_nodes)
+  }
   if (data$config$ready$active) {
     P[[length(P) + 1]] <- plist$ready
     H[[length(H) + 1]] <- config_value(data$config$ready$height, data$config$guided$starvz_height_var)
@@ -174,10 +178,14 @@ starvz_compute_plot_heights <- function(plist, config) {
 #' @return The ggplot plot
 #' @examples
 #' \donttest{
-#' starvz_assemble(starvz_plot_list(starvz_sample_lu), config=starvz_sample_lu$config)
+#' starvz_assemble(starvz_plot_list(starvz_sample_lu),
+#'                 config = starvz_sample_lu$config)
 #' }
 #' @export
 starvz_assemble <- function(..., config = NULL, remove_Y_info = TRUE, remove_legends = TRUE) {
+  defaut_config <- starvz_default_config()
+  config <- modifyList(defaut_config, config)
+
   plists <- list()
   for (i in list(...)) {
 
@@ -311,6 +319,9 @@ starvz_plot_list <- function(data = NULL) {
 
   starvz_check_data(data, tables = list("Application" = c("Start", "End")))
 
+  defaut_config <- starvz_default_config()
+  data$config <- modifyList(defaut_config, data$config)
+
   # Adjust temporal scale
   if (is.null(data$config$limits$start)) {
     data$config$limits$start <- data$Application %>%
@@ -341,6 +352,7 @@ starvz_plot_list <- function(data = NULL) {
     st_pm = geom_blank(),
     st_mm = geom_blank(),
     starpu = geom_blank(),
+    node_events = geom_blank(),
     ijk = geom_blank(),
     ijk_pm = geom_blank(),
     lackready = geom_blank(),
@@ -360,7 +372,8 @@ starvz_plot_list <- function(data = NULL) {
     activenodes = geom_blank(),
     nodememuse = geom_blank(),
     summary_nodes = geom_blank(),
-    tplot = geom_blank()
+    tplot = geom_blank(),
+    verticallines = geom_blank()
   )
 
   # Atree space/time view
@@ -407,6 +420,13 @@ starvz_plot_list <- function(data = NULL) {
     starvz_log("Creating the StarPU Space/Time")
     plot_list$starpu <- panel_st_runtime(data)
   }
+
+  # Node Events
+  if (data$config$node_events$active) {
+    starvz_log("Creating the Node Events")
+    plot_list$node_events <- panel_node_events(data)
+  }
+
 
   # KIteration
   if (data$config$kiteration$active) {
@@ -522,7 +542,7 @@ starvz_plot_list <- function(data = NULL) {
   }
 
   if (data$config$vertical_lines$active) {
-    ret[[length(ret) + 1]] <- geom_vline(
+    plot_list$verticallines <- geom_vline(
       xintercept = data$config$vertical_lines$x_list,
       linetype = "longdash",
       size = 1,
@@ -541,16 +561,21 @@ starvz_plot_list <- function(data = NULL) {
 #' @param save call ggplot to save the image
 #' @param name Path for saved image
 #' @param guided compute ideal figure height
+#' @param dpi dpi for ggsave
 #' @return ggplot object with all starvz plots
 #' @examples
 #' \donttest{
 #' starvz_plot(starvz_sample_lu)
 #' }
 #' @export
-starvz_plot <- function(data = NULL, name = NULL, save = FALSE, guided = data$config$guided$active) {
+starvz_plot <- function(data = NULL, name = NULL, save = FALSE, guided = data$config$guided$active, dpi = 120) {
   if (is.null(data)) {
     return(NULL)
   }
+
+  # Normalize Config
+  defaut_config <- starvz_default_config()
+  data$config <- modifyList(defaut_config, data$config)
 
   if (!is.null(guided) && guided) {
     # USe Y to compute state and starpu size
@@ -585,7 +610,7 @@ starvz_plot <- function(data = NULL, name = NULL, save = FALSE, guided = data$co
 
     if (!is.null(data$config$selected_nodes)) {
       data$Y %>%
-        separate(.data$Parent, into = c("Node"), remove = FALSE) %>%
+        separate(.data$Parent, into = c("Node"), remove = FALSE, extra = "drop", fill = "right") %>%
         filter(.data$Node %in% data$config$selected_nodes) %>%
         arrange(.data$Position) %>%
         mutate(New = cumsum(lag(.data$Height, default = 0))) %>%
@@ -627,7 +652,7 @@ starvz_plot <- function(data = NULL, name = NULL, save = FALSE, guided = data$co
     final_in_height <- final_px_height / total_dpi
     final_in_width <- final_px_width / total_dpi
 
-    ggsave(name, plot = plot, width = final_in_width, height = final_in_height, units = "in", dpi = total_dpi, limitsize = FALSE)
+    ggsave(name, plot = plot, width = final_in_width, height = final_in_height, units = "in", dpi = dpi, limitsize = FALSE)
   }
 
   starvz_log("Ending Starvz plot function")

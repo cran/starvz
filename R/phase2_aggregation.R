@@ -126,6 +126,7 @@ panel_st_agg_dynamic <- function(data = NULL,
 #' @param runtime if this is runtime data
 #' @param x_start X-axis start value
 #' @param x_end X-axis end value
+#' @param outliers print outliers on top
 #' @param step time-step
 #' @return A ggplot object
 #' @include starvz_data.R
@@ -137,6 +138,7 @@ panel_st_agg_dynamic <- function(data = NULL,
 panel_st_agg_static <- function(data = NULL, runtime = FALSE,
                                 x_start = data$config$limits$start,
                                 x_end = data$config$limits$end,
+                                outliers = data$config$st$outliers,
                                 step = data$config$st$aggregation$step) {
   if (is.null(data)) {
     return(NULL)
@@ -186,7 +188,7 @@ panel_st_agg_static <- function(data = NULL, runtime = FALSE,
   total_time <- tend - tstart
 
   # yconf
-  yconfm <- yconf(dfw, data$config$st$labels)
+  yconfm <- yconf(dfw, data$config$st$labels, data$Y)
 
   starvz_log("Plotting Agg")
 
@@ -206,10 +208,10 @@ panel_st_agg_static <- function(data = NULL, runtime = FALSE,
       xmin = .data$Start,
       xmax = .data$End,
       ymin = .data$Position + .data$TaskPosition,
-      ymax = .data$Position + (.data$TaskPosition + .data$TaskHeight), color = .data$Task
+      ymax = .data$Position + (.data$TaskPosition + .data$TaskHeight)
     ), alpha = .5)
 
-  if (!runtime) {
+  if (!runtime && outliers) {
     # Print outliers on top
     gow <- gow + geom_rect(
       data = (dfw %>% filter(.data$Outlier == TRUE)),
@@ -441,18 +443,9 @@ aggregate_trace <- function(df_native, states, excludeIds, min_time_pure) {
   df_aggregate <- df_aggregate %>%
     group_by(.data$ResourceId, .data$Chunk) %>%
     mutate(aggregated = ifelse((abs(.data$Activity - 1) <= 0.00001) & .data$Number == 1, FALSE, TRUE))
-  df_aggregate
+  df_aggregate %>% ungroup()
 }
 
-# This function is used to compute the relative height of different states in the chunk. After, this is used to create a stacked view of each chunk.
-# Input: a data table computed using the aggreate_trace function.
-# Output: a data table with PosY column, representing the height of each state in the chunk. This column is computed using the Activity proportion.
-compute_aggregate_coord <- function(df) {
-  df$Activity <- df$Activity * 0.8 # this is used to reduce the size of the rectangle (a smaller rectangle is better for visualization as we already tested in another gantt charts)
-  df %>%
-    group_by(.data$ResourceId, .data$Chunk) %>%
-    mutate(PosY = (as.numeric(.data$ResourceId) - 0.4) + (cumsum(.data$Activity))) # -0.4 is needed to put the rectangle in the middle of the y-axi
-}
 geom_aggregated_states <- function(data = NULL, Show.Outliers = FALSE, min_time_pure = 1000, states = NA, base_size = 22, labels = "1", expand_value = 0.05) {
   if (is.null(data)) stop("data is NULL when given to geom_aggregated_states")
   if (is.na(states)) stop("states is NA when given to geom_aggregated_states")
@@ -471,7 +464,7 @@ geom_aggregated_states <- function(data = NULL, Show.Outliers = FALSE, min_time_
   # Prepare Y coordinates for left_join
   data$Y %>%
     rename(ResourceId = .data$Parent) %>%
-    separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE) %>%
+    separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
     mutate(Node = as.factor(.data$Node)) %>%
     mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) -> ydf
 
@@ -491,7 +484,7 @@ geom_aggregated_states <- function(data = NULL, Show.Outliers = FALSE, min_time_
   ret[[length(ret) + 1]] <- default_theme(base_size, expand_value)
 
   # Y axis breaks and their labels
-  yconfm <- yconf(dfw, labels)
+  yconfm <- yconf(dfw, labels, data$Y)
   ret[[length(ret) + 1]] <- scale_y_continuous(
     breaks = yconfm$Position + (yconfm$Height / 3), labels = yconfm$ResourceId,
     expand = c(expand_value, 0)

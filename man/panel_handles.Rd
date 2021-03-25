@@ -4,7 +4,18 @@
 \alias{panel_handles}
 \title{Create a space time visualization of data handles}
 \usage{
-panel_handles(data, JobId = NA, lines = NA, lHandle = NA)
+panel_handles(
+  data,
+  JobId = NA,
+  lines = NA,
+  lHandle = NA,
+  name_func = NULL,
+  legend = data$config$handles$legend,
+  base_size = data$config$base_size,
+  expand_x = data$config$expand,
+  x_start = data$config$limits$start,
+  x_end = data$config$limits$end
+)
 }
 \arguments{
 \item{data}{starvz_data with trace data}
@@ -14,6 +25,18 @@ panel_handles(data, JobId = NA, lines = NA, lHandle = NA)
 \item{lines}{vertical lines}
 
 \item{lHandle}{select handles}
+
+\item{name_func}{function to give names to handles}
+
+\item{legend}{enable/disable legends}
+
+\item{base_size}{base_size base font size}
+
+\item{expand_x}{expand size for scale_x_continuous padding}
+
+\item{x_start}{X-axis start value}
+
+\item{x_end}{X-axis end value}
 }
 \value{
 A ggplot object

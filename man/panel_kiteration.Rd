@@ -9,10 +9,11 @@ panel_kiteration(
   middle_lines = data$config$kiteration$middlelines,
   base_size = data$config$base_size,
   expand_x = data$config$expand,
-  legend = data$config$ready$legend,
+  legend = data$config$kiteration$legend,
   x_start = data$config$limits$start,
   x_end = data$config$limits$end,
-  per_node = data$config$kiteration$pernode
+  per_node = data$config$kiteration$pernode,
+  sub_ite = data$config$kiteration$subite
 )
 }
 \arguments{
@@ -31,12 +32,14 @@ panel_kiteration(
 \item{x_end}{X-axis end value}
 
 \item{per_node}{Create node facets}
+
+\item{sub_ite}{Use Subiteration as Y}
 }
 \value{
 A ggplot object
 }
 \description{
-Plot iteraionts Y over Time X
+Plot iterations Y over Time X
 }
 \examples{
 panel_kiteration(data = starvz_sample_lu)

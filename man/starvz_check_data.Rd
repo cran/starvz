@@ -4,7 +4,8 @@
 \alias{starvz_check_data}
 \title{Check if all required data is available}
 \usage{
-starvz_check_data(data = NULL, tables = list(), extra_func = NULL)
+starvz_check_data(data = NULL,
+             tables = list(), extra_func = NULL)
 }
 \arguments{
 \item{data}{starvz_data with trace data}
@@ -26,5 +27,6 @@ The following conditions are check in order and return FALSE if any fail
 - Execute extra_func on data (that should return true or false)
 }
 \examples{
-starvz_check_data(starvz_sample_lu, tables = list("Comm_state" = c("Node")))
+starvz_check_data(starvz_sample_lu,
+                  tables = list("Comm_state" = c("Node")))
 }
