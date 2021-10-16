@@ -372,8 +372,7 @@ starvz_plot_list <- function(data = NULL) {
     activenodes = geom_blank(),
     nodememuse = geom_blank(),
     summary_nodes = geom_blank(),
-    tplot = geom_blank(),
-    verticallines = geom_blank()
+    tplot = geom_blank()
   )
 
   # Atree space/time view
@@ -542,12 +541,18 @@ starvz_plot_list <- function(data = NULL) {
   }
 
   if (data$config$vertical_lines$active) {
-    plot_list$verticallines <- geom_vline(
+    starvz_log("Creating vertical lines")
+    verticallines <- geom_vline(
       xintercept = data$config$vertical_lines$x_list,
       linetype = "longdash",
       size = 1,
       colour = data$config$vertical_lines$color_list
     )
+    for (name in names(plot_list)) {
+      if(name != "tplot" && is(plot_list[[name]], "ggplot") == TRUE){
+        plot_list[[name]] <- (plot_list[[name]] + verticallines)
+      }
+    }
   }
 
   return(plot_list)

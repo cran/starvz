@@ -11,6 +11,7 @@ NULL
 #' @param x_start X-axis start value
 #' @param x_end X-axis end value
 #' @param expand_x expand size for scale_x_continuous padding
+#' @param expand_y expand size for scale_y_continuous padding
 #' @return A ggplot object
 #' @include starvz_data.R
 #' @examples
@@ -21,13 +22,18 @@ NULL
 panel_st_agg_dynamic <- function(data = NULL,
                                  x_start = data$config$limits$start,
                                  x_end = data$config$limits$end,
-                                 expand_x = data$config$st$expand) {
+                                 expand_x = data$config$expand,
+                                 expand_y = data$config$st$expand) {
   if (is.null(data)) {
     return(NULL)
   }
 
   if (is.null(expand_x) || !is.numeric(expand_x)) {
     expand_x <- 0.05
+  }
+
+  if (is.null(expand_y) || !is.numeric(expand_y)) {
+    expand_y<- 0.01
   }
 
   if (is.null(x_start) || (!is.na(x_start) && !is.numeric(x_start))) {
@@ -73,7 +79,8 @@ panel_st_agg_dynamic <- function(data = NULL,
       min_time_pure = with.min_time_pure,
       base_size = data$config$base_size,
       labels = data$config$st$labels,
-      expand_value = expand_x
+      expand_value_x = expand_x,
+      expand_value_y = expand_y
     ) +
     xlab("Time [ms]")
 
@@ -126,6 +133,8 @@ panel_st_agg_dynamic <- function(data = NULL,
 #' @param runtime if this is runtime data
 #' @param x_start X-axis start value
 #' @param x_end X-axis end value
+#' @param expand_x expand size for scale_x_continuous padding
+#' @param expand_y expand size for scale_y_continuous padding
 #' @param outliers print outliers on top
 #' @param step time-step
 #' @return A ggplot object
@@ -138,6 +147,8 @@ panel_st_agg_dynamic <- function(data = NULL,
 panel_st_agg_static <- function(data = NULL, runtime = FALSE,
                                 x_start = data$config$limits$start,
                                 x_end = data$config$limits$end,
+                                expand_x = data$config$expand,
+                                expand_y = data$config$st$expand,
                                 outliers = data$config$st$outliers,
                                 step = data$config$st$aggregation$step) {
   if (is.null(data)) {
@@ -194,13 +205,14 @@ panel_st_agg_static <- function(data = NULL, runtime = FALSE,
 
   # Plot
   gow <- dfw_agg %>% ggplot() +
-    default_theme() +
+    default_theme(base_size = data$config$base_size, expand = expand_x) +
     # coord_cartesian(xlim=c(tstart, tend)) +
     xlab("Time [ms]") +
     scale_fill_manual(values = extract_colors(dfw, data$Colors)) +
     scale_y_continuous(
       breaks = yconfm$Position,
-      labels = yconfm$ResourceId
+      labels = yconfm$ResourceId,
+      expand = c(expand_y, 0)
     ) +
     # Print time-aggregated data
     geom_rect(aes(
@@ -446,7 +458,7 @@ aggregate_trace <- function(df_native, states, excludeIds, min_time_pure) {
   df_aggregate %>% ungroup()
 }
 
-geom_aggregated_states <- function(data = NULL, Show.Outliers = FALSE, min_time_pure = 1000, states = NA, base_size = 22, labels = "1", expand_value = 0.05) {
+geom_aggregated_states <- function(data = NULL, Show.Outliers = FALSE, min_time_pure = 1000, states = NA, base_size = 22, labels = "1", expand_value_x = 0.05, expand_value_y = 0.01) {
   if (is.null(data)) stop("data is NULL when given to geom_aggregated_states")
   if (is.na(states)) stop("states is NA when given to geom_aggregated_states")
 
@@ -481,13 +493,13 @@ geom_aggregated_states <- function(data = NULL, Show.Outliers = FALSE, min_time_
   ret <- list()
 
   # Add the default theme
-  ret[[length(ret) + 1]] <- default_theme(base_size, expand_value)
+  ret[[length(ret) + 1]] <- default_theme(base_size, expand_value_x)
 
   # Y axis breaks and their labels
   yconfm <- yconf(dfw, labels, data$Y)
   ret[[length(ret) + 1]] <- scale_y_continuous(
     breaks = yconfm$Position + (yconfm$Height / 3), labels = yconfm$ResourceId,
-    expand = c(expand_value, 0)
+    expand = c(expand_value_y, 0)
   )
 
   ret[[length(ret) + 1]] <- geom_rect(data = dfw, aes(

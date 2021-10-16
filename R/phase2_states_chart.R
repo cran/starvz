@@ -173,11 +173,16 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
 
     # check if task dependencies should be added
     if (taskdeps) {
-      tasksel <- gaps_backward_deps(
-        data = data,
-        tasks = tasklist,
-        levels = levels
-      )
+      if(!is.null(data$Lastest)){
+        tasksel <- lastest(data, tasklist)
+      }else{
+        tasksel <- gaps_backward_deps(
+          data = data,
+          tasks = tasklist,
+          levels = levels
+        )
+      }
+
       if (nrow(tasksel) > 0 & !is.null(selected_nodes)) {
         tasksel <- tasksel %>%
           left_join(new_y, by = c("ResourceId" = "Parent")) %>%
@@ -231,6 +236,7 @@ geom_states <- function(dfw = NULL, Show.Outliers = FALSE, StarPU = FALSE, Color
 
   # Y axis breaks and their labels
   yconfm <- yconf(dfw, labels, Y)
+
   ret[[length(ret) + 1]] <- scale_y_continuous(
     breaks = yconfm$Position + (yconfm$Height / 3), labels = unique(as.character(yconfm$ResourceId)),
     expand = c(expand, 0)
@@ -273,7 +279,7 @@ geom_states <- function(dfw = NULL, Show.Outliers = FALSE, StarPU = FALSE, Color
 }
 
 geom_path_highlight <- function(paths = NULL) {
-  if (is.null(paths)) stop("paths is NULL when given to gaps_backward_deps")
+  if (is.null(paths)) return(list())
   if ((paths %>% nrow()) == 0) {
     return(list())
   }
@@ -423,7 +429,7 @@ panel_st_agg_node <- function(data,
       breaks = yconf$Node.Position,
       labels = yconf$Label, expand = c(data$config$expand, 0)
     ) +
-    ylab("Node Ocupation") +
+    ylab("Node Occupation") +
     geom_rect(aes(
       fill = .data$Task,
       xmin = .data$Start,

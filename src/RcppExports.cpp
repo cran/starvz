@@ -5,6 +5,11 @@
 
 using namespace Rcpp;
 
+#ifdef RCPP_USE_GLOBAL_ROSTREAM
+Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
+Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
+#endif
+
 // integrateStepFunc
 NumericVector integrateStepFunc(NumericVector x, NumericVector bounds, NumericVector values);
 RcppExport SEXP _starvz_integrateStepFunc(SEXP xSEXP, SEXP boundsSEXP, SEXP valuesSEXP) {
@@ -15,6 +20,40 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< NumericVector >::type bounds(boundsSEXP);
     Rcpp::traits::input_parameter< NumericVector >::type values(valuesSEXP);
     rcpp_result_gen = Rcpp::wrap(integrateStepFunc(x, bounds, values));
+    return rcpp_result_gen;
+END_RCPP
+}
+// lastest_task_c
+DataFrame lastest_task_c(DataFrame df);
+RcppExport SEXP _starvz_lastest_task_c(SEXP dfSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< DataFrame >::type df(dfSEXP);
+    rcpp_result_gen = Rcpp::wrap(lastest_task_c(df));
+    return rcpp_result_gen;
+END_RCPP
+}
+// get_last_path
+List get_last_path(DataFrame lasttask, CharacterVector selected_tasks);
+RcppExport SEXP _starvz_get_last_path(SEXP lasttaskSEXP, SEXP selected_tasksSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< DataFrame >::type lasttask(lasttaskSEXP);
+    Rcpp::traits::input_parameter< CharacterVector >::type selected_tasks(selected_tasksSEXP);
+    rcpp_result_gen = Rcpp::wrap(get_last_path(lasttask, selected_tasks));
+    return rcpp_result_gen;
+END_RCPP
+}
+// separate_res
+DataFrame separate_res(DataFrame data);
+RcppExport SEXP _starvz_separate_res(SEXP dataSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< DataFrame >::type data(dataSEXP);
+    rcpp_result_gen = Rcpp::wrap(separate_res(data));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -33,6 +72,9 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_starvz_integrateStepFunc", (DL_FUNC) &_starvz_integrateStepFunc, 3},
+    {"_starvz_lastest_task_c", (DL_FUNC) &_starvz_lastest_task_c, 1},
+    {"_starvz_get_last_path", (DL_FUNC) &_starvz_get_last_path, 2},
+    {"_starvz_separate_res", (DL_FUNC) &_starvz_separate_res, 1},
     {"_starvz_boost_shortest_path", (DL_FUNC) &_starvz_boost_shortest_path, 2},
     {NULL, NULL, 0}
 };

@@ -1,6 +1,6 @@
 Package: starvz
 Title: R-Based Visualization Techniques for Task-Based Applications
-Version: 0.5.0
+Version: 0.6.0
 Authors@R: c(
     person("Lucas Mello Schnorr", email = "schnorr@inf.ufrgs.br", role = c("aut", "ths"), comment = c(ORCID = "0000-0003-4828-9942")),
     person("Vinicius Garcia Pinto", email = "vgpinto@inf.ufrgs.br", role = c("aut"), comment = c(ORCID = "0000-0002-6845-9358")),
@@ -30,7 +30,7 @@ Imports: methods, grDevices, stats, utils, magrittr, dplyr, ggplot2,
         car, flexmix, arrow (>= 3.0.0)
 License: GPL-3
 Encoding: UTF-8
-SystemRequirements: C++, bash, StarPU
+SystemRequirements: C++, arrow package with gzip codec, StarPU
 LazyData: true
 LinkingTo: Rcpp (>= 1.0.6), BH
 RoxygenNote: 7.1.1
@@ -46,7 +46,7 @@ Collate: 'RcppExports.R' 'starvz_data.R' 'phase1.R'
         'write_functions.R'
 Suggests: testthat, viridis
 NeedsCompilation: yes
-Packaged: 2021-03-23 17:37:13 UTC; llnesi
+Packaged: 2021-10-15 23:41:20 UTC; llnesi
 Author: Lucas Mello Schnorr [aut, ths]
     (<https://orcid.org/0000-0003-4828-9942>),
   Vinicius Garcia Pinto [aut] (<https://orcid.org/0000-0002-6845-9358>),
@@ -58,4 +58,4 @@ Author: Lucas Mello Schnorr [aut, ths]
   Rémy Drouilhet [ctb]
 Maintainer: Lucas Leandro Nesi <lucas.nesi@inf.ufrgs.br>
 Repository: CRAN
-Date/Publication: 2021-03-25 13:50:02 UTC
+Date/Publication: 2021-10-16 14:10:02 UTC
