@@ -63,7 +63,7 @@ read_worker_csv <- function(where = ".",
       Y = as.integer(.data$Y),
       Iteration = as.integer(.data$Iteration),
       Subiteration = as.integer(.data$Subiteration)
-    )
+    ) %>% filter(!is.na(.data$ResourceId))
 
   if ((dfw %>% nrow()) == 0) stop("After reading worker states, number of rows is zero.")
 
@@ -232,14 +232,6 @@ read_worker_csv <- function(where = ".",
     model_LR_log <- function(df) {
       lm(log(Duration) ~ log(GFlop), data = df)
     }
-    # configure the flexmix model to clusterize tasks before running the model_LR_log
-    model_flexmix_log <- function(df) {
-      stepFlexmix(Duration ~ GFlop,
-        data = df, k = 1:2,
-        model = FLXMRglm(log(Duration) ~ log(GFlop)),
-        control = list(nrep = 30)
-      )
-    }
 
     # set dummy variable for Cluster
     Application <- Application %>% mutate(Cluster = 1)
@@ -248,25 +240,38 @@ read_worker_csv <- function(where = ".",
     Application <- regression_based_outlier_detection(Application, model_NLR, "_NLR", level = 0.95)
     Application <- regression_based_outlier_detection(Application, model_LR_log, "_LR_LOG", level = 0.95)
 
-    # need to create the clusters before calling the function, let's do the clustering for all
-    # types of tasks for now, replacing the dummy Cluster variable
-    Application <- Application %>% select(-.data$Cluster)
-    Application <- Application %>%
-      filter(grepl("qrt", .data$Value)) %>%
-      filter(.data$GFlop > 0) %>%
-      group_by(.data$ResourceType, .data$Value) %>%
-      nest() %>%
-      mutate(flexmix_model = map(.data$data, model_flexmix_log)) %>%
-      mutate(Cluster = map(.data$flexmix_model, function(m) {
-        # pick the best fitted model according to BIC metric
-        getModel(m, which = "BIC")@cluster
-      })) %>%
-      select(-.data$flexmix_model) %>%
-      unnest(cols = c(.data$Cluster, .data$data)) %>%
-      ungroup() %>%
-      select(.data$JobId, .data$Cluster) %>%
-      full_join(Application, by = "JobId")
-    Application <- regression_based_outlier_detection(Application, model_LR_log, "_FLEXMIX", level = 0.95)
+    if (!requireNamespace("flexmix", quietly = TRUE)) {
+      # configure the flexmix model to clusterize tasks before running the model_LR_log
+      model_flexmix_log <- function(df) {
+        flexmix::stepFlexmix(Duration ~ GFlop,
+          data = df, k = 1:2,
+          model = flexmix::FLXMRglm(log(Duration) ~ log(GFlop)),
+          control = list(nrep = 30)
+        )
+      }
+
+      # need to create the clusters before calling the function, let's do the clustering for all
+      # types of tasks for now, replacing the dummy Cluster variable
+      Application <- Application %>% select(-.data$Cluster)
+      Application <- Application %>%
+        filter(grepl("qrt", .data$Value)) %>%
+        filter(.data$GFlop > 0) %>%
+        group_by(.data$ResourceType, .data$Value) %>%
+        nest() %>%
+        mutate(flexmix_model = map(.data$data, model_flexmix_log)) %>%
+        mutate(Cluster = map(.data$flexmix_model, function(m) {
+          # pick the best fitted model according to BIC metric
+          flexmix::getModel(m, which = "BIC")@cluster
+        })) %>%
+        select(-.data$flexmix_model) %>%
+        unnest(cols = c(.data$Cluster, .data$data)) %>%
+        ungroup() %>%
+        select(.data$JobId, .data$Cluster) %>%
+        full_join(Application, by = "JobId")
+      Application <- regression_based_outlier_detection(Application, model_LR_log, "_FLEXMIX", level = 0.95)
+    }else{
+      starvz_warn("qrmumps can use the suggested package flexmix (that is not installed) to do another outlier classification")
+    }
 
     # Use the Outlier_LR_LOG (log~log) as the default Outlier classification
     Application <- Application %>% rename(Outlier = .data$Outlier_LR_LOG)
@@ -525,31 +530,49 @@ read_vars_set_new_zero <- function(where = ".", ZERO = 0) {
   } else {
     stop(paste("File", variable.csv, "do not exist"))
   }
+
+  firstResourceId <- dfv %>%
+    .$ResourceId %>%
+    unique() %>%
+    as.character() %>%
+    sort() %>%
+    head(n = 1)
+
   dfv %>%
     select(-.data$Nature) %>%
     # the new zero because of the long initialization phase
-    mutate(Start = .data$Start - ZERO, End = .data$End - ZERO) %>%
+    mutate(Start = .data$Start - ZERO, End = .data$End - ZERO) -> dfv
+
     # create three new columns (Node, Resource, ResourceType)
     # This is StarPU-specific
-    mutate(ResourceId=as.factor(.data$ResourceId)) %>%
-    separate_res() %>%
-    tibble() %>%
-    mutate(Resource = as.factor(.data$Resource)) %>%
-    mutate(Node = as.factor(.data$Node)) %>%
-    mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
-    # abbreviate names so they are smaller
-    # This does not work fine.
-    # mutate(Type = abbreviate(Type, minlength=10));
+    if (grepl("CUDA|CPU", unlist(strsplit(firstResourceId, "_"))[2])) {
+      starvz_log("This is multi-node trace")
+      # This is the case for multi-node trace
+      dfv %>%
+        mutate(ResourceId=as.factor(.data$ResourceId)) %>%
+        separate_res() %>%
+        tibble() %>%
+        mutate(Resource = as.factor(.data$Resource)) %>%
+        mutate(Node = as.factor(.data$Node)) %>%
+        mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
+        mutate(Type = as.factor(.data$Type)) -> tmp
+    } else {
+      starvz_log("This is a single-node trace...")
+      # This is the case for SINGLE node trace
+      dfv %>%
+        mutate(Node = as.factor(0)) %>%
+        mutate(Resource = .data$ResourceId) %>%
+        mutate(ResourceType = as.factor(gsub("[_[:digit:]]+", "", .data$ResourceId))) %>%
+        mutate(Type = as.factor(.data$Type)) -> tmp
+    }
+
     # manually rename variables names
-    mutate(Type = as.factor(.data$Type)) -> tmp
-
-    tmp %>% .$Type %>% levels() -> lvl
-    gsub("Number of Ready Tasks", "Ready", lvl) -> lvl
-    gsub("Number of Submitted Uncompleted Tasks", "Submitted", lvl) -> lvl
-    gsub("Bandwidth In \\(MB/s)", "B. In (MB/s)", lvl) -> lvl
-    gsub("Bandwidth Out \\(MB/s)", "B. Out (MB/s)", lvl) -> lvl
-
-    tmp %>% mutate(Type = factor(.data$Type, levels=lvl)) -> dfv
+    tmp %>% mutate(
+      Type = gsub("Number of Ready Tasks", "Ready", .data$Type),
+      Type = gsub("Number of Submitted Uncompleted Tasks", "Submitted", .data$Type),
+      Type = gsub("Bandwidth In \\(MB/s)", "B. In (MB/s)", .data$Type),
+      Type = gsub("Bandwidth Out \\(MB/s)", "B. Out (MB/s)", .data$Type)
+    ) -> dfv
   return(dfv)
 }
 
@@ -727,16 +750,7 @@ data_handles_csv_parser <- function(where = ".", ZERO = 0) {
     starvz_log(paste("Reading ", entities.csv))
     pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
-      col_types = cols(
-        Handle = col_character(),
-        HomeNode = col_integer(),
-        MPIRank = col_integer(),
-        Size = col_integer(),
-        Description = col_character(),
-        Coordinates = col_character(),
-        MPIOwner = col_integer(),
-        MPITag = col_integer()
-      )
+      show_col_types=FALSE
     ))
   } else {
     starvz_log(paste("File", entities.csv, "do not exist."))
@@ -745,6 +759,9 @@ data_handles_csv_parser <- function(where = ".", ZERO = 0) {
   ret <- pm %>% mutate(Handle = as.factor(.data$Handle))
   if ("Description" %in% colnames(ret)) {
     ret <- ret %>% mutate(Description = as.factor(.data$Description))
+  }
+  if ("Name" %in% colnames(ret)) {
+    ret <- ret %>% mutate(Name = as.factor(.data$Name))
   }
 
   return(ret)
