@@ -78,6 +78,7 @@ panel_st_runtime <- function(data,
 #' @param runtime TODO I think we should create a separated function for it
 #' @param x_start X-axis start value
 #' @param x_end X-axis end value
+#' @param drop_small Drop states smaller then this value
 #' @param legend enable/disable legends
 #' @return A ggplot object
 #' @include starvz_data.R
@@ -93,8 +94,7 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
                          makespan = data$config$st$makespan, abe = data$config$st$abe$active, pmtoolbounds = data$config$pmtool$bounds$active,
                          cpb = data$config$st$cpb, cpb_mpi = data$config$st$cpb_mpi$active, legend = data$config$st$legend,
                          x_start = data$config$limits$start,
-                         x_end = data$config$limits$end, runtime = FALSE) {
-
+                         x_end = data$config$limits$end, drop_small = data$config$st$drop_small, runtime = FALSE) {
   # ST.Outliers = TRUE, base_size=22, expand_x=0.05,
   #  expand_y=0.05, selected_nodes = NULL, labels="ALL", alpha=0.25, idleness=TRUE,
   #  taskdeps=FALSE, tasklist = NULL,  levels=10, makespan=TRUE, abe=FALSE, pmtoolbounds=FALSE,
@@ -104,6 +104,10 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
 
   if (is.null(expand_x) || !is.numeric(expand_x)) {
     expand_x <- 0.05
+  }
+
+  if (is.null(drop_small) || !is.numeric(drop_small)) {
+    drop_small <- 0.0
   }
 
   if (is.null(x_start) || (!is.na(x_start) && !is.numeric(x_start))) {
@@ -130,18 +134,18 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
       filter(.data$Node %in% selected_nodes) %>%
       arrange(.data$Position) %>%
       mutate(New = cumsum(lag(.data$Height, default = 0))) %>%
-      select(.data$Parent, .data$New) -> new_y
+      select("Parent", "New") -> new_y
     if (runtime) {
       data$Starpu <- data$Starpu %>%
         left_join(new_y, by = c("ResourceId" = "Parent")) %>%
         mutate(Position = if_else(is.na(.data$New), -3, .data$New)) %>%
-        select(-.data$New)
+        select(-"New")
     } else {
       data$Application <- data$Application %>%
         left_join(new_y, by = c("ResourceId" = "Parent")) %>%
         mutate(Position = if_else(is.na(.data$New), -3, .data$New)) %>%
         mutate(Height = if_else(is.na(.data$New), 0, .data$Height)) %>%
-        select(-.data$New)
+        select(-"New")
       App <- data$Application %>%
         filter(.data$Position >= 0)
     }
@@ -149,7 +153,7 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
 
   # Add states and outliers if requested
   if (runtime) {
-    gow <- gow + geom_states(data$Starpu,
+    gow <- gow + geom_states(data$Starpu %>% filter(.data$Duration >= drop_small),
       ST.Outliers, runtime, data$Colors,
       labels = labels,
       expand = expand_y,
@@ -157,7 +161,7 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
       alpha_value = alpha, Y = data$Y
     )
   } else {
-    gow <- gow + geom_states(App,
+    gow <- gow + geom_states(App %>% filter(.data$Duration >= drop_small),
       ST.Outliers, runtime, data$Colors,
       labels = labels,
       expand = expand_y,
@@ -167,15 +171,14 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
   }
 
   if (!runtime) {
-
     # add idleness
     if (idleness) gow <- gow + geom_idleness(data)
 
     # check if task dependencies should be added
     if (taskdeps) {
-      if(!is.null(data$Last)){
+      if (!is.null(data$Last)) {
         tasksel <- last(data, tasklist)
-      }else{
+      } else {
         tasksel <- gaps_backward_deps(
           data = data,
           tasks = tasklist,
@@ -187,7 +190,7 @@ panel_st_raw <- function(data = NULL, ST.Outliers = data$config$st$outliers, bas
         tasksel <- tasksel %>%
           left_join(new_y, by = c("ResourceId" = "Parent")) %>%
           mutate(Position = if_else(is.na(.data$New), -3, .data$New)) %>%
-          select(-.data$New)
+          select(-"New")
       }
 
       gow <- gow + geom_path_highlight(tasksel)
@@ -236,9 +239,8 @@ geom_states <- function(dfw = NULL, Show.Outliers = FALSE, StarPU = FALSE, Color
 
   # Y axis breaks and their labels
   yconfm <- yconf(dfw, labels, Y)
-
   ret[[length(ret) + 1]] <- scale_y_continuous(
-    breaks = yconfm$Position + (yconfm$Height / 3), labels = unique(as.character(yconfm$ResourceId)),
+    breaks = yconfm$Position + (yconfm$Height / 3), labels = as.character(yconfm$ResourceId),
     expand = c(expand, 0)
   )
   # Y label
@@ -279,7 +281,9 @@ geom_states <- function(dfw = NULL, Show.Outliers = FALSE, StarPU = FALSE, Color
 }
 
 geom_path_highlight <- function(paths = NULL) {
-  if (is.null(paths)) return(list())
+  if (is.null(paths)) {
+    return(list())
+  }
   if ((paths %>% nrow()) == 0) {
     return(list())
   }
@@ -291,7 +295,7 @@ geom_path_highlight <- function(paths = NULL) {
   # highlight the tasks involved in the path
   ret[[length(ret) + 1]] <- geom_rect(
     data = paths,
-    size = 1,
+    linewidth = 1,
     aes(
       color = .data$Path,
       xmin = .data$Start,
@@ -305,11 +309,11 @@ geom_path_highlight <- function(paths = NULL) {
 
   # collect each JobId coordinates
   paths %>%
-    select(.data$JobId, .data$Start, .data$End, .data$Position, .data$Height) %>%
+    select("JobId", "Start", "End", "Position", "Height") %>%
     unique() -> x1
   # gather coordinates for the lines
   paths %>%
-    select(.data$Path, .data$JobId, .data$Dependent) %>%
+    select("Path", "JobId", "Dependent") %>%
     left_join(x1, by = c("JobId" = "JobId")) %>%
     left_join(x1, by = c("Dependent" = "JobId")) %>%
     na.omit() -> pathlines
@@ -338,6 +342,7 @@ geom_path_highlight <- function(paths = NULL) {
 #' @param x_end X-axis end value
 #' @param step time-step
 #' @param legend option to activate legend
+#' @param selected_nodes select only some nodes in some plots
 #' @return A ggplot object
 #' @include starvz_data.R
 #' @examples
@@ -349,7 +354,8 @@ panel_st_agg_node <- function(data,
                               x_start = data$config$limits$start,
                               x_end = data$config$limits$end,
                               step = data$config$st$aggregation$step,
-                              legend = data$config$st$legend) {
+                              legend = data$config$st$legend,
+                              selected_nodes = data$config$selected_nodes) {
   if (is.null(step) || !is.numeric(step)) {
     if (is.null(data$config$global_agg_step)) {
       agg_step <- 100
@@ -372,6 +378,22 @@ panel_st_agg_node <- function(data,
     legend <- TRUE
   }
 
+  if (!is.null(selected_nodes)) {
+    data$Y %>%
+      separate(.data$Parent, into = c("Node"), remove = FALSE, extra = "drop", fill = "right") %>%
+      filter(.data$Node %in% selected_nodes) %>%
+      arrange(.data$Position) %>%
+      mutate(New = cumsum(lag(.data$Height, default = 0))) %>%
+      select("Parent", "New") -> new_y
+
+    data$Application <- data$Application %>%
+      left_join(new_y, by = c("ResourceId" = "Parent")) %>%
+      mutate(Position = if_else(is.na(.data$New), -3, .data$New)) %>%
+      mutate(Height = if_else(is.na(.data$New), 0, .data$Height)) %>%
+      select(-"New") %>%
+      filter(.data$Position >= 0)
+  }
+
   step <- 100
   df <- time_aggregation_prep(data$Application)
   df <- time_aggregation_do(df %>%
@@ -383,7 +405,7 @@ panel_st_agg_node <- function(data,
   space <- space.between
   df.spatial %>%
     mutate(Node = as.integer(as.character(.data$Node))) %>%
-    select(.data$Node, .data$ResourceType) %>%
+    select("Node", "ResourceType") %>%
     unique() %>%
     mutate(ResourceType.Height = 1) %>%
     arrange(-.data$Node, desc(.data$ResourceType)) %>%
@@ -400,20 +422,22 @@ panel_st_agg_node <- function(data,
     mutate(Height = 1) %>%
     ungroup() -> df.spatial_prep
 
-  hl_per_node_ABE(data$Application) %>%
-    mutate(Node = as.integer(as.character(.data$Node))) %>%
-    select(-.data$MinPosition, -.data$MaxPosition) %>%
-    left_join(df.node_position %>% select(.data$Node, .data$ResourceType.Position, .data$ResourceType.Height) %>% unique(), by = c("Node")) %>%
-    select(.data$Node, .data$Result, .data$ResourceType.Position, .data$ResourceType.Height) %>%
-    arrange(-.data$Node) %>%
-    group_by(.data$Node, .data$Result) %>%
-    summarize(
-      Node.Position = min(.data$ResourceType.Position),
-      Node.Height = sum(.data$ResourceType.Height)
-    ) %>%
-    ungroup() %>%
-    mutate(MinPosition = .data$Node.Position) %>%
-    mutate(MaxPosition = .data$Node.Position + .data$Node.Height + space.between) -> df.pernodeABE
+  if (data$config$st$abe$active) {
+    hl_per_node_ABE(data$Application) %>%
+      mutate(Node = as.integer(as.character(.data$Node))) %>%
+      select(-"MinPosition", -"MaxPosition") %>%
+      left_join(df.node_position %>% select("Node", "ResourceType.Position", "ResourceType.Height") %>% unique(), by = c("Node")) %>%
+      select("Node", "Result", "ResourceType.Position", "ResourceType.Height") %>%
+      arrange(-.data$Node) %>%
+      group_by(.data$Node, .data$Result) %>%
+      summarize(
+        Node.Position = min(.data$ResourceType.Position),
+        Node.Height = sum(.data$ResourceType.Height)
+      ) %>%
+      ungroup() %>%
+      mutate(MinPosition = .data$Node.Position) %>%
+      mutate(MaxPosition = .data$Node.Position + .data$Node.Height + space.between) -> df.pernodeABE
+  }
 
   df.node_position %>%
     group_by(.data$Node, .data$ResourceType) %>%
@@ -424,7 +448,7 @@ panel_st_agg_node <- function(data,
     ggplot() +
     default_theme(data$config$base_size, data$config$expand) +
     xlab("Time [ms]") +
-    scale_fill_manual(values = extract_colors(df.spatial_prep %>% rename(Value = .data$Task), data$Colors)) +
+    scale_fill_manual(values = extract_colors(df.spatial_prep %>% rename(Value = "Task"), data$Colors)) +
     scale_y_continuous(
       breaks = yconf$Node.Position,
       labels = yconf$Label, expand = c(data$config$expand, 0)

@@ -16,7 +16,6 @@
 #' @importFrom stringr str_replace str_replace_all str_to_title
 #' @importFrom purrr list_modify map map2
 #' @importFrom patchwork wrap_plots
-#' @importFrom arrow arrow_available read_feather read_parquet write_feather write_parquet codec_is_available ParquetWriterProperties
 #' @importFrom lpSolve lp
 #' @importFrom data.tree as.Node Prune Set
 #' @importFrom gtools mixedorder mixedsort
@@ -169,7 +168,8 @@ plot.starvz_data <- function(x, ...) {
 #' @include starvz_data.R
 #' @examples
 #' starvz_check_data(starvz_sample_lu,
-#'                   tables = list("Comm_state" = c("Node")))
+#'   tables = list("Comm_state" = c("Node"))
+#' )
 #' @export
 starvz_check_data <- function(data = NULL,
                               tables = list(),
@@ -179,7 +179,7 @@ starvz_check_data <- function(data = NULL,
     caller <- paste0("", deparse(sys.calls()[[sys.nframe() - 1]]), ":")
   }
   if (is.null(data)) stop(paste(caller, "data is NULL"), call. = FALSE)
-  if (class(data) != "starvz_data") stop(paste(caller, "data is not starvz_data"), call. = FALSE)
+  if (!inherits(data, "starvz_data")) stop(paste(caller, "data is not starvz_data"), call. = FALSE)
   if (!is.null(tables)) {
     if (!is.list(tables)) {
       stop(paste(caller, "tables is not a list"), call. = FALSE)
@@ -209,6 +209,47 @@ starvz_check_data <- function(data = NULL,
     }
   }
   return(TRUE)
+}
+
+convert_state <- function(data) {
+  data$Application <- data$State %>% filter(.data$Application)
+  data$Application <- data$Application %>% mutate(Size = as.integer(.data$Size))
+  data$Starpu <- data$State %>%
+    filter(.data$Type == "Worker State", .data$Application == FALSE) %>%
+    mutate(Size = as.integer(.data$Size))
+  data$Comm_state <- data$State %>%
+    filter(.data$Type == "Communication Thread State") %>%
+    select(-"Position", -"Height")
+  data$Memory_state <- data$State %>%
+    filter(.data$Type == "Memory Node State") %>%
+    select(-"Position")
+  data$Colors <- data$State %>%
+    filter(.data$Application) %>%
+    select("Value", "Color") %>%
+    distinct()
+  data$State <- NULL
+  data$Version <- "0.7"
+  return(data)
+}
+
+#' Try to convert old StarVZ data to the new type
+#'
+#' Old StarVZ data are usually just a tibble
+#' @param data starvz_data old data
+#' @return starvz_data the data converted
+#' @usage starvz_transform_olddata(data)
+#' @examples
+#' starvz_transform_olddata(starvz_sample_lu)
+#' @export
+starvz_transform_olddata <- function(data) {
+  if ("State" %in% names(data)) {
+    data <- convert_state(data)
+  }
+  if (!("Config" %in% names(data))) {
+    data$config <- starvz_default_config()
+  }
+  data <- new_starvz_data(data)
+  return(data)
 }
 
 #' Small StarVZ data of LU Factorization

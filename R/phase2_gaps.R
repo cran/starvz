@@ -7,7 +7,9 @@ gaps_backward_deps <- function(data = NULL, tasks = NULL, levels = 1) {
   if (is.null(tasks)) stop("task is NULL when given to gaps_backward_deps")
   if (levels < 1) stop("level lt 1 when given to  gaps_backward_deps")
 
-  if(is.null(data$Gaps)) return(NULL);
+  if (is.null(data$Gaps)) {
+    return(NULL)
+  }
 
   tibble(Path = tasks) %>%
     unique() %>%
@@ -41,11 +43,11 @@ gaps_backward_deps_one <- function(data = NULL, task = NULL, levels = 1) {
       left_join(dfl, by = c("JobId" = "Key")) %>%
       # Post-processing
       # Keep only the destination of the link
-      rename(ResourceId = .data$Dest) %>%
+      rename(ResourceId = "Dest") %>%
       separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
-      select(-.data$Origin, -.data$Container) %>%
+      select(-"Origin", -"Container") %>%
       # Enrich ResourceId with Height, Position
-      left_join((data$Y %>% select(-.data$Type) %>% mutate(Parent = as.character(.data$Parent))), by = c("ResourceId" = "Parent")) -> retl
+      left_join((data$Y %>% select(-"Type") %>% mutate(Parent = as.character(.data$Parent))), by = c("ResourceId" = "Parent")) -> retl
   } else {
     data.frame() -> retl
   }
@@ -79,7 +81,7 @@ gaps_backward_deps_rec <- function(data = NULL, path = NULL, task = NULL, levels
     slice(1) %>%
     ungroup() %>%
     # get only what is useful
-    select(.data$Path, .data$JobId, .data$Dependent) -> dep
+    select("Path", "JobId", "Dependent") -> dep
 
   # check if dep has something
   if (nrow(dep) == 0) {

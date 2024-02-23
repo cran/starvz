@@ -1,3 +1,4 @@
+
 #' @include starvz_data.R
 
 starvz_compute_plot_heights <- function(plist, config) {
@@ -129,7 +130,7 @@ starvz_compute_plot_heights <- function(plist, config) {
     P[[length(P) + 1]] <- plist$imb_plot
     H[[length(H) + 1]] <- config_value(data$config$imbalance$height, data$config$guided$starvz_height_var)
   }
-  if (data$config$power_imbalance$active && !all.equal(plist$imb_plot_power, geom_blank())) {
+  if (data$config$power_imbalance$active && !is.null(plist$imb_plot_power)) {
     P[[length(P) + 1]] <- plist$imb_plot_power
     H[[length(H) + 1]] <- config_value(data$config$power_imbalance$height, data$config$guided$starvz_height_var)
   }
@@ -179,7 +180,8 @@ starvz_compute_plot_heights <- function(plist, config) {
 #' @examples
 #' \donttest{
 #' starvz_assemble(starvz_plot_list(starvz_sample_lu),
-#'                 config = starvz_sample_lu$config)
+#'   config = starvz_sample_lu$config
+#' )
 #' }
 #' @export
 starvz_assemble <- function(..., config = NULL, remove_Y_info = TRUE, remove_legends = TRUE) {
@@ -188,7 +190,6 @@ starvz_assemble <- function(..., config = NULL, remove_Y_info = TRUE, remove_leg
 
   plists <- list()
   for (i in list(...)) {
-
     # Check if arguments are a list or a plot
     # is.list is not adequated here
     if (isTRUE(class(i[[1]]) == "list")) {
@@ -299,22 +300,8 @@ starvz_plot_list <- function(data = NULL) {
   if (is.null(data)) stop("data passed as parameter is null")
 
   if (is.null(data$Version)) {
-    starvz_warn("This is a old StarVZ trace, trying to be retrocompatible")
-    data$Application <- data$State %>% filter(.data$Application)
-    data$Application <- data$Application %>% mutate(Size = as.integer(.data$Size))
-    data$Starpu <- data$State %>%
-      filter(.data$Type == "Worker State", .data$Application == FALSE) %>%
-      mutate(Size = as.integer(.data$Size))
-    data$Comm_state <- data$State %>%
-      filter(.data$Type == "Communication Thread State") %>%
-      select(-.data$Position, -.data$Height)
-    data$Memory_state <- data$State %>%
-      filter(.data$Type == "Memory Node State") %>%
-      select(-.data$Position)
-    data$Colors <- data$State %>%
-      filter(.data$Application) %>%
-      select(.data$Value, .data$Color) %>%
-      distinct()
+    starvz_warn("This is an old StarVZ trace, trying to be retrocompatible")
+    data <- convert_state(data)
   }
 
   starvz_check_data(data, tables = list("Application" = c("Start", "End")))
@@ -549,7 +536,7 @@ starvz_plot_list <- function(data = NULL) {
       colour = data$config$vertical_lines$color_list
     )
     for (name in names(plot_list)) {
-      if(name != "tplot" && is(plot_list[[name]], "ggplot") == TRUE){
+      if (name != "tplot" && is(plot_list[[name]], "ggplot") == TRUE) {
         plot_list[[name]] <- (plot_list[[name]] + verticallines)
       }
     }
@@ -596,12 +583,12 @@ starvz_plot <- function(data = NULL, name = NULL, save = FALSE, guided = data$co
       nodes <- length(data$config$selected_nodes)
     } else if (!is.null(data$Tasks)) {
       nodes <- data$Tasks %>%
-        select(.data$MPIRank) %>%
+        select("MPIRank") %>%
         distinct() %>%
         nrow()
     } else if (!is.null(data$Application)) {
       nodes <- data$Application %>%
-        select(.data$Node) %>%
+        select("Node") %>%
         distinct() %>%
         nrow()
     } else {
@@ -609,7 +596,7 @@ starvz_plot <- function(data = NULL, name = NULL, save = FALSE, guided = data$co
     }
 
     types <- data$Application %>%
-      select(.data$ResourceType) %>%
+      select("ResourceType") %>%
       distinct() %>%
       nrow()
 
@@ -619,7 +606,7 @@ starvz_plot <- function(data = NULL, name = NULL, save = FALSE, guided = data$co
         filter(.data$Node %in% data$config$selected_nodes) %>%
         arrange(.data$Position) %>%
         mutate(New = cumsum(lag(.data$Height, default = 0))) %>%
-        select(.data$Parent, .data$New) -> new_y
+        select("Parent", "New") -> new_y
       data$config$guided$starvz_height_resources <- (new_y$New %>% max()) * 15 / 100
     } else {
       data$config$guided$starvz_height_resources <- (data$Y$Position %>% max()) * 15 / 100

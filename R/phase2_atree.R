@@ -26,14 +26,15 @@ panel_atree_structure <- function(data = NULL, end_arrow = "ParentEnd") {
   if (tolower(end_arrow) == "parentend") {
     dtree <- data$Atree %>%
       # Get Start time of the first task belonging to each ANode
-      left_join(data$Application %>%
-        select(.data$ANode, .data$Start, .data$End) %>%
-        group_by(.data$ANode) %>%
-        summarize(
-          Start = min(.data$Start),
-          End = max(.data$End)
-        ),
-      by = "ANode"
+      left_join(
+        data$Application %>%
+          select("ANode", "Start", "End") %>%
+          group_by(.data$ANode) %>%
+          summarize(
+            Start = min(.data$Start),
+            End = max(.data$End)
+          ),
+        by = "ANode"
       ) %>%
       # Get graphical properties of Parent for each ANode
       left_join(
@@ -41,7 +42,7 @@ panel_atree_structure <- function(data = NULL, end_arrow = "ParentEnd") {
         y = .,
         by = c("Parent" = "ANode"), suffix = c("", ".Parent")
       ) %>%
-      select(-.data$Parent.Parent) %>%
+      select(-"Parent.Parent") %>%
       # Keep only non pruned nodes for tree structure
       filter(.data$NodeType != "Pruned") %>%
       # Calculate coordinates for lines connecting child with parent
@@ -64,17 +65,18 @@ panel_atree_structure <- function(data = NULL, end_arrow = "ParentEnd") {
   } else {
     dtree <- data$Atree %>%
       # Get Start time of the first task belonging to each ANode (keep Start as it is, but consider two end points clean and comptation)
-      left_join(data$Application %>%
-        mutate(EndType = case_when(
-          grepl("clean", .data$Value) ~ "CleanEnd",
-          TRUE ~ "ComputationEnd"
-        )) %>%
-        select(.data$ANode, .data$Start, .data$End, .data$EndType) %>%
-        group_by(.data$ANode, .data$EndType) %>%
-        mutate(End = max(.data$End)) %>%
-        group_by(.data$ANode) %>%
-        mutate(Start = min(.data$Start)),
-      by = "ANode"
+      left_join(
+        data$Application %>%
+          mutate(EndType = case_when(
+            grepl("clean", .data$Value) ~ "CleanEnd",
+            TRUE ~ "ComputationEnd"
+          )) %>%
+          select("ANode", "Start", "End", "EndType") %>%
+          group_by(.data$ANode, .data$EndType) %>%
+          mutate(End = max(.data$End)) %>%
+          group_by(.data$ANode) %>%
+          mutate(Start = min(.data$Start)),
+        by = "ANode"
       ) %>%
       # Keep only non pruned nodes for tree structure
       filter(.data$NodeType != "Pruned") %>%
@@ -88,7 +90,7 @@ panel_atree_structure <- function(data = NULL, end_arrow = "ParentEnd") {
         y = .,
         by = c("Parent" = "ANode"), suffix = c("", ".Parent")
       ) %>%
-      select(-.data$Parent.Parent) %>%
+      select(-"Parent.Parent") %>%
       group_by(.data$Parent) %>%
       mutate(ComputationEnd.Parent = max(.data$ComputationEnd)) %>%
       ungroup() %>%
@@ -121,7 +123,7 @@ panel_atree_structure <- function(data = NULL, end_arrow = "ParentEnd") {
 
   # data frame for node "lifetime" geom_segment
   dline <- dtree %>%
-    select(.data$ANode, .data$Start, .data$End, .data$Position, .data$Height, .data$Parent) %>%
+    select("ANode", "Start", "End", "Position", "Height", "Parent") %>%
     filter(!is.na(.data$Parent), !is.na(.data$Start))
 
   atreeplot <- ggplot() +
@@ -212,8 +214,10 @@ panel_atree_structure <- function(data = NULL, end_arrow = "ParentEnd") {
 #' @examples
 #' \dontrun{
 #' panel_atree(starvz_sample_lu, step = 10)
-#' panel_atree(starvz_sample_lu, step = 20,
-#'             communication = FALSE, initialization = FALSE)
+#' panel_atree(starvz_sample_lu,
+#'   step = 20,
+#'   communication = FALSE, initialization = FALSE
+#' )
 #' }
 #' @export
 panel_atree <- function(data = NULL, step = data$config$atree$step, legend = data$config$atree$legend, zoom = FALSE,
@@ -249,21 +253,22 @@ panel_atree <- function(data = NULL, step = data$config$atree$step, legend = dat
     step = step, group_pruned = TRUE, performance_metric = performance_metric
   ) %>%
     filter(.data$Value1 != 0) %>%
-    select(.data$ANode, .data$Slice, .data$Value1) %>%
+    select("ANode", "Slice", "Value1") %>%
     ungroup() %>%
-    rename(NodeUsage = .data$Value1) %>%
+    rename(NodeUsage = "Value1") %>%
     left_join(data$Atree, by = "ANode")
 
   # Resize for not pruned nodes, first and last computational tasks
   data_tree_utilization_not_pruned <- data_utilization_node %>%
-    inner_join(data$Application %>%
-      filter(grepl("qrt", .data$Value)) %>%
-      select(.data$ANode, .data$End, .data$Start) %>%
-      group_by(.data$ANode) %>%
-      mutate(Start = min(.data$Start), End = max(.data$End)) %>%
-      select(.data$ANode, .data$Start, .data$End) %>%
-      unique(),
-    by = "ANode"
+    inner_join(
+      data$Application %>%
+        filter(grepl("qrt", .data$Value)) %>%
+        select("ANode", "End", "Start") %>%
+        group_by(.data$ANode) %>%
+        mutate(Start = min(.data$Start), End = max(.data$End)) %>%
+        select("ANode", "Start", "End") %>%
+        unique(),
+      by = "ANode"
     ) %>%
     mutate(Start = ifelse(.data$Start >= .data$Slice, .data$Start, .data$Slice)) %>%
     mutate(End = ifelse(.data$Slice + step >= .data$End, .data$End, .data$Slice + step))
@@ -286,13 +291,14 @@ panel_atree <- function(data = NULL, step = data$config$atree$step, legend = dat
     # Manipulate data for the tree resource utilization plots
     # Resize for pruned nodes Start and End of the aggregated pruned nodes
     data_tree_utilization_pruned <- data_utilization_node %>%
-      inner_join(data$Application %>%
-        filter(grepl("do_subtree", .data$Value)) %>%
-        select(.data$ANode, .data$End, .data$Start) %>%
-        group_by(.data$ANode) %>%
-        mutate(Start = min(.data$Start), End = max(.data$End)) %>%
-        unique(),
-      by = "ANode"
+      inner_join(
+        data$Application %>%
+          filter(grepl("do_subtree", .data$Value)) %>%
+          select("ANode", "End", "Start") %>%
+          group_by(.data$ANode) %>%
+          mutate(Start = min(.data$Start), End = max(.data$End)) %>%
+          unique(),
+        by = "ANode"
       ) %>%
       group_by(.data$Parent, .data$Position) %>%
       mutate(Start = min(.data$Start), End = max(.data$End)) %>%
@@ -330,7 +336,7 @@ panel_atree <- function(data = NULL, step = data$config$atree$step, legend = dat
     dfw_init <- data$Application %>%
       filter(grepl("init_", .data$Value)) %>%
       unique() %>%
-      select(-.data$Position, -.data$Height) %>%
+      select(-"Position", -"Height") %>%
       left_join(data$Atree, by = "ANode") %>%
       filter(!is.na(Position))
 
@@ -344,7 +350,7 @@ panel_atree <- function(data = NULL, step = data$config$atree$step, legend = dat
     dfw_comm <- data$Application %>%
       filter(grepl("block_copy", .data$Value) | grepl("block_extadd", .data$Value)) %>%
       unique() %>%
-      select(-.data$Position, -.data$Height) %>%
+      select(-"Position", -"Height") %>%
       left_join(data$Atree, by = "ANode") %>%
       filter(!is.na(.data$Position))
 
@@ -468,7 +474,7 @@ panel_utiltreenode <- function(data = NULL,
   event_data <- event_data %>%
     cbind(colors) %>%
     as_tibble() %>%
-    select(.data$ANode, .data$Color) %>%
+    select("ANode", "Color") %>%
     unique()
 
   # join data frames
@@ -480,7 +486,7 @@ panel_utiltreenode <- function(data = NULL,
   # must expand data frame to make geom_area work properly
   df_plot <- df2 %>%
     filter(!is.na(.data$Color)) %>%
-    select(-.data$ANode) %>%
+    select(-"ANode") %>%
     expand(.data$Slice, .data$Color) %>%
     left_join(df2 %>% filter(.data$Value != 0), by = c("Slice", "Color")) %>%
     mutate(Value1 = ifelse(is.na(.data$Value1), 0, .data$Value1))
@@ -506,7 +512,7 @@ panel_utiltreenode <- function(data = NULL,
   # decide the size of the pallet, if it will include more colors than just green
   ncolors <- df_plot %>%
     ungroup() %>%
-    select(.data$Color) %>%
+    select("Color") %>%
     max(.$Color)
   if (ncolors <= 10) {
     palette <- brewer.pal(9, "Greens")[3:9]
@@ -670,7 +676,7 @@ panel_nodememuse <- function(data = NULL,
   # Prepare data
   data_mem_utilization <- data$Application %>%
     filter(grepl("front", .data$Value) | grepl("do_subtree", .data$Value)) %>%
-    rename(Task = .data$Value) %>%
+    rename(Task = "Value") %>%
     # we wrote the memory usage in the GFlops field...
     mutate(UsedMemMB = ifelse(grepl("clean", .data$Task), -.data$GFlop * 1024, .data$GFlop * 1024)) %>%
     arrange(.data$Start) %>%
@@ -684,14 +690,14 @@ panel_nodememuse <- function(data = NULL,
     # mem use without time aggregation
     df_mem <- data$Application %>%
       filter(grepl("front", .data$Value) | grepl("do_sub", .data$Value)) %>%
-      select(.data$Start, .data$Value, .data$GFlop, .data$ANode, .data$Node) %>%
+      select("Start", "Value", "GFlop", "ANode", "Node") %>%
       arrange(.data$Start) %>%
       mutate(GFlop = ifelse(.data$Value == "clean_front", -.data$GFlop, .data$GFlop)) %>%
       mutate(MemMB = .data$GFlop * 1024) %>%
       mutate(UsedMemMB = cumsum(.data$MemMB)) %>%
       mutate(Time = .data$Start * 0.9999) %>%
       gather(.data$Start, .data$Time, key = "Start", value = "Time") %>%
-      select(-.data$Start) %>%
+      select(-"Start") %>%
       arrange(.data$Time) %>%
       mutate(UsedMemMB = lag(.data$UsedMemMB))
 
@@ -766,7 +772,7 @@ panel_activenodes <- function(data = NULL,
   # Prepare data
   data_active_nodes <- data$Application %>%
     filter(grepl("front", .data$Value) | grepl("subtree", .data$Value)) %>%
-    select(.data$ResourceId, .data$Start, .data$End, .data$Value, .data$ANode) %>%
+    select("ResourceId", "Start", "End", "Value", "ANode") %>%
     mutate(
       node_count = case_when(
         .data$Value == "do_subtree" ~ 1,
@@ -777,12 +783,12 @@ panel_activenodes <- function(data = NULL,
     ) %>%
     # get the node types from Atree
     left_join(
-      data$Atree %>% select(.data$ANode, .data$NodeType),
+      data$Atree %>% select("ANode", "NodeType"),
       by = "ANode"
     ) %>%
     arrange(.data$Start) %>%
     group_by(.data$NodeType) %>%
-    rename(Task = .data$Value) %>%
+    rename(Task = "Value") %>%
     mutate(Value = cumsum(.data$node_count)) %>%
     filter(!is.na(.data$NodeType))
 
@@ -842,13 +848,13 @@ resource_utilization_tree_node <- function(Application = NULL,
     filter(
       grepl("qrt", .data$Value) | grepl("subtree", .data$Value)
     ) %>%
-    select(.data$ANode, .data$Start, .data$End, .data$JobId, .data$GFlop) %>%
+    select("ANode", "Start", "End", "JobId", "GFlop") %>%
     unique() %>%
     arrange(.data$Start)
 
   # Get number of workers for resource utilization
   NWorkers <- Application %>%
-    select(.data$ResourceId) %>%
+    select("ResourceId") %>%
     unique() %>%
     nrow()
 
@@ -857,12 +863,13 @@ resource_utilization_tree_node <- function(Application = NULL,
     # When we change ANode, we also need to update it in Atree, but this will modify other plots as well
     groupPruned <- Atree %>%
       mutate(NewANode = case_when(.data$NodeType == "Pruned" ~ paste0(.data$Parent, "Pruned"), TRUE ~ .data$ANode)) %>%
-      select(.data$ANode, .data$NodeType, .data$NewANode)
+      select("ANode", "NodeType", "NewANode")
 
     df_filter <- df_filter %>%
-      left_join(groupPruned %>%
-        select(.data$ANode, .data$NodeType, .data$NewANode),
-      by = "ANode"
+      left_join(
+        groupPruned %>%
+          select("ANode", "NodeType", "NewANode"),
+        by = "ANode"
       ) %>%
       mutate(originalAnode = .data$ANode, ANode = .data$NewANode)
   }
@@ -879,11 +886,11 @@ resource_utilization_tree_node <- function(Application = NULL,
 
     # Do the time aggregation of resource utilization by ANode
     data_node_plot <- data_node_parallelism %>%
-      select(.data$ANode, .data$Time, .data$nodeParallelism) %>%
+      select("ANode", "Time", "nodeParallelism") %>%
       arrange(.data$Time) %>%
       mutate(End = lead(.data$Time)) %>%
       mutate(Duration = .data$End - .data$Time) %>%
-      rename(Start = .data$Time, Value = .data$nodeParallelism) %>%
+      rename(Start = "Time", Value = "nodeParallelism") %>%
       na.omit() %>%
       group_by(.data$ANode) %>%
       do(remyTimeIntegrationPrepNoDivision(., myStep = step)) %>%
@@ -897,7 +904,7 @@ resource_utilization_tree_node <- function(Application = NULL,
       group_by(.data$Slice) %>%
       mutate(nest(Application %>%
         filter(grepl("qrt", .data$Value) | grepl("subtree", .data$Value)) %>%
-        select(.data$Start, .data$End, .data$ANode, .data$Duration, .data$GFlop), data = everything())) %>%
+        select("Start", "End", "ANode", "Duration", "GFlop"), data = everything())) %>%
       # filter task by slice and calculate GFlops contribution to that slice
       mutate(SliceData = map2(.data$data, .data$Slice, function(x, y) {
         SliceStart <- .data$Slice
@@ -920,8 +927,8 @@ resource_utilization_tree_node <- function(Application = NULL,
           group_by(.data$ANode) %>%
           summarize(GFlop = sum(.data$GFlop), SliceGFlop = sum(.data$SliceGFlop), .groups = "keep")
       })) %>%
-      select(-.data$data) %>%
-      unnest(cols = c(.data$SliceData)) %>%
+      select(-"data") %>%
+      unnest(cols = c("SliceData")) %>%
       mutate(Value1 = .data$SliceGFlop) %>%
       ungroup()
   }
@@ -929,11 +936,11 @@ resource_utilization_tree_node <- function(Application = NULL,
   # Restore original values of ANode for the Pruned nodes
   if (isTRUE(group_pruned)) {
     data_node_plot <- data_node_plot %>%
-      left_join(df_filter %>% select(.data$ANode, .data$originalAnode),
+      left_join(df_filter %>% select("ANode", "originalAnode"),
         by = "ANode"
       ) %>%
       mutate(ANode = .data$originalAnode) %>%
-      select(-.data$originalAnode)
+      select(-"originalAnode")
   }
 
   return(data_node_plot)
@@ -944,25 +951,25 @@ resource_utilization_tree_depth <- function(Application = NULL, Atree = NULL, st
   # Prepare and filter data
   df_filter <- Application %>%
     filter(grepl("qrt", .data$Value) | grepl("do_subtree", .data$Value)) %>%
-    select(.data$ANode, .data$Start, .data$End, .data$JobId) %>%
+    select("ANode", "Start", "End", "JobId") %>%
     arrange(.data$Start)
 
   # Get number of workers for resource utilization
   NWorkers <- Application %>%
     filter(grepl("CPU", .data$ResourceType) | grepl("CUDA", .data$ResourceType)) %>%
-    select(.data$ResourceId) %>%
+    select("ResourceId") %>%
     unique() %>%
     nrow()
 
   # Compute the node parallelism
   df_node_parallelism <- df_filter %>%
-    select(.data$ANode, .data$Start, .data$JobId) %>%
+    select("ANode", "Start", "JobId") %>%
     mutate(Event = "Start") %>%
-    rename(Time = .data$Start) %>%
+    rename(Time = "Start") %>%
     bind_rows(df_filter %>%
-      select(.data$ANode, .data$End, .data$JobId) %>%
+      select("ANode", "End", "JobId") %>%
       mutate(Event = "End") %>%
-      rename(Time = .data$End)) %>%
+      rename(Time = "End")) %>%
     arrange(.data$Time) %>%
     group_by(.data$ANode) %>%
     mutate(Value = ifelse(.data$Event == "Start", 1, -1)) %>%
@@ -971,11 +978,11 @@ resource_utilization_tree_depth <- function(Application = NULL, Atree = NULL, st
 
   # Integrate resource utilization by ANode
   df_node_plot <- df_node_parallelism %>%
-    select(.data$ANode, .data$Time, .data$nodeParallelism) %>%
+    select("ANode", "Time", "nodeParallelism") %>%
     arrange(.data$Time) %>%
     mutate(End = lead(.data$Time)) %>%
     mutate(Duration = .data$End - .data$Time) %>%
-    rename(Start = .data$Time, Value = .data$nodeParallelism) %>%
+    rename(Start = "Time", Value = "nodeParallelism") %>%
     na.omit() %>%
     group_by(.data$ANode) %>%
     do(remyTimeIntegrationPrepNoDivision(., myStep = step)) %>%
@@ -986,11 +993,11 @@ resource_utilization_tree_depth <- function(Application = NULL, Atree = NULL, st
     arrange(.data$Slice) %>%
     mutate(Usage = sum(.data$Value1)) %>%
     # usage by depth
-    left_join(Atree %>% select(.data$ANode, .data$Depth), by = "ANode") %>%
+    left_join(Atree %>% select("ANode", "Depth"), by = "ANode") %>%
     group_by(.data$Slice, .data$Depth) %>%
     mutate(Value1 = sum(.data$Value1)) %>%
     ungroup() %>%
-    select(-.data$ANode, -.data$Value) %>%
+    select(-"ANode", -"Value") %>%
     unique()
 
   # expand all time slices with the possible colors (for geom_ribbon)
@@ -1014,13 +1021,14 @@ resource_utilization_tree_depth <- function(Application = NULL, Atree = NULL, st
 # Add anomalies representation in the tree structure
 atree_geom_anomalies <- function(data) {
   anomalies_points <- data$Application %>%
-    select(-.data$Position) %>%
-    left_join(data$Atree %>%
-      select(
-        .data$ANode,
-        .data$Position
-      ),
-    by = "ANode"
+    select(-"Position") %>%
+    left_join(
+      data$Atree %>%
+        select(
+          "ANode",
+          "Position"
+        ),
+      by = "ANode"
     ) %>%
     filter(.data$Outlier) %>%
     mutate(Height = 1)
@@ -1108,7 +1116,7 @@ get_min_color <- function(node) {
 find_node_color <- function(node) {
   color <- pkg.env$df_colors %>%
     filter(.data$ANode == node & .data$Event == "Start") %>%
-    select(.data$color) %>%
+    select("color") %>%
     .$color
 
   return(color)
@@ -1142,22 +1150,23 @@ get_tree_utilization <- function(data, step, performance_metric) {
   ) %>%
     unique() %>%
     filter(.data$Value1 != 0) %>%
-    select(.data$ANode, .data$Slice, .data$Value1) %>%
+    select("ANode", "Slice", "Value1") %>%
     ungroup() %>%
-    rename(NodeUsage = .data$Value1) %>%
+    rename(NodeUsage = "Value1") %>%
     left_join(data$Atree, by = "ANode")
 
   # Resize for not pruned nodes, first and last computational tasks
   # data_tree_utilization <- data_gflops_node  %>%
   data_tree_utilization <- data_utilization_node %>%
-    inner_join(data$Application %>%
-      filter(grepl("qrt", .data$Value) | grepl("do_sub", .data$Value)) %>%
-      select(.data$ANode, .data$End, .data$Start) %>%
-      group_by(.data$ANode) %>%
-      mutate(Start = min(.data$Start), End = max(.data$End)) %>%
-      select(.data$ANode, .data$Start, .data$End) %>%
-      unique(),
-    by = "ANode"
+    inner_join(
+      data$Application %>%
+        filter(grepl("qrt", .data$Value) | grepl("do_sub", .data$Value)) %>%
+        select("ANode", "End", "Start") %>%
+        group_by(.data$ANode) %>%
+        mutate(Start = min(.data$Start), End = max(.data$End)) %>%
+        select("ANode", "Start", "End") %>%
+        unique(),
+      by = "ANode"
     ) %>%
     mutate(Start = ifelse(.data$Start >= .data$Slice, .data$Start, .data$Slice)) %>%
     mutate(End = ifelse(.data$Slice + step >= .data$End, .data$End, .data$Slice + step))
@@ -1169,21 +1178,22 @@ get_tree_flops <- function(data, step) {
   data_utilization_node <- resource_utilization_tree_node(data$Application, data$Atree, step = step, group_pruned = TRUE) %>%
     unique() %>%
     filter(.data$Value != 0) %>%
-    select(.data$ANode, .data$Slice, .data$Value1) %>%
+    select("ANode", "Slice", "Value1") %>%
     ungroup() %>%
-    rename(NodeUsage = .data$Value1) %>%
+    rename(NodeUsage = "Value1") %>%
     left_join(data$Atree, by = "ANode")
 
   # Resize for not pruned nodes, first and last computational tasks
   data_tree_utilization <- data_utilization_node %>%
-    inner_join(data$Application %>%
-      filter(grepl("qrt", .data$Value) | grepl("do_sub", .data$Value)) %>%
-      select(.data$ANode, .data$End, .data$Start) %>%
-      group_by(.data$ANode) %>%
-      mutate(Start = min(.data$Start), End = max(.data$End)) %>%
-      select(.data$ANode, .data$Start, .data$End) %>%
-      unique(),
-    by = "ANode"
+    inner_join(
+      data$Application %>%
+        filter(grepl("qrt", .data$Value) | grepl("do_sub", .data$Value)) %>%
+        select("ANode", "End", "Start") %>%
+        group_by(.data$ANode) %>%
+        mutate(Start = min(.data$Start), End = max(.data$End)) %>%
+        select("ANode", "Start", "End") %>%
+        unique(),
+      by = "ANode"
     ) %>%
     mutate(Start = ifelse(.data$Start >= .data$Slice, .data$Start, .data$Slice)) %>%
     mutate(End = ifelse(.data$Slice + step >= .data$End, .data$End, .data$Slice + step))
@@ -1265,7 +1275,7 @@ panel_compare_tree <- function(data1 = NULL,
     mutate(Execution = "NodeUsage.faster") %>%
     bind_rows(data_tree_utilization2 %>%
       mutate(Execution = "NodeUsage.slower")) %>%
-    select(-.data$Start, -.data$End) %>%
+    select(-"Start", -"End") %>%
     spread(.data$Execution, .data$NodeUsage) %>%
     mutate(
       NodeUsage.faster = ifelse(is.na(.data$NodeUsage.faster), 0, .data$NodeUsage.faster),

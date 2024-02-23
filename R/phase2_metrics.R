@@ -15,16 +15,16 @@ abe_cpu_cuda_details <- function(dfl, Colors = NULL, debug = FALSE) {
   # Extract the solution from the LP
   lpresult %>% pull(.data$Result) -> result
   lpresult %>%
-    select(.data$Types, .data$Values) %>%
-    unnest(cols = c(.data$Types)) %>%
-    unnest(cols = c(.data$Values)) %>%
+    select("Types", "Values") %>%
+    unnest(cols = c("Types")) %>%
+    unnest(cols = c("Values")) %>%
     mutate(
       Count = result[[1]]$solution[1:n()],
       Estimation = TRUE
     ) %>%
     rename(
-      ResourceType = .data$Types,
-      Value = .data$Values
+      ResourceType = "Types",
+      Value = "Values"
     ) -> ret
 
   # Get the actual counts and merge everything together
@@ -54,14 +54,14 @@ abe_cpu_cuda_inner <- function(dfl, debug = FALSE) {
 
   # The amount of nodes
   nnodes <- dfl %>%
-    select(.data$Node) %>%
+    select("Node") %>%
     unique() %>%
     .$Node %>%
     sort() %>%
     length()
   # The amount of resources
   df1.res_quantity <- dfl %>%
-    select(.data$Node, .data$Resource, .data$ResourceType) %>%
+    select("Node", "Resource", "ResourceType") %>%
     unique() %>%
     group_by(.data$ResourceType) %>%
     summarize(Quantity = n())
@@ -84,12 +84,12 @@ abe_cpu_cuda_inner <- function(dfl, debug = FALSE) {
 
   # Initial parameters simplification
   values <- df1.num_mean %>%
-    select(.data$Value) %>%
+    select("Value") %>%
     arrange(.data$Value) %>%
     .$Value %>%
     unique()
   types <- df1.num_mean %>%
-    select(.data$ResourceType) %>%
+    select("ResourceType") %>%
     arrange(.data$ResourceType) %>%
     .$ResourceType %>%
     unique() %>%
@@ -134,10 +134,10 @@ abe_cpu_cuda_inner <- function(dfl, debug = FALSE) {
   m <- df1.num_mean %>%
     arrange(.data$ResourceType, .data$Value) %>%
     pivot_wider(
-      id_cols = .data$ResourceType, names_from = .data$Value, values_from = .data$Mean,
+      id_cols = "ResourceType", names_from = "Value", values_from = "Mean",
       names_sort = TRUE, values_fill = 1e10
     ) %>%
-    select(-.data$ResourceType) %>%
+    select(-"ResourceType") %>%
     set_colnames(NULL) %>%
     as.matrix()
   M <- matrix(data = rep(0, ntypes * (nnames - 1)), nrow = ntypes)
@@ -192,7 +192,7 @@ hl_per_node_ABE <- function(dfw = NULL) {
 
   dftemp <- dfw %>%
     filter(grepl("CPU|CUDA", .data$ResourceId)) %>%
-    select(.data$Node, .data$Resource, .data$ResourceType, .data$Duration, .data$Value, .data$Position, .data$Height)
+    select("Node", "Resource", "ResourceType", "Duration", "Value", "Position", "Height")
   pernodeABE <- dftemp %>%
     group_by(.data$Node) %>%
     do(abe_cpu_cuda(.data))
@@ -210,7 +210,7 @@ hl_per_node_ABE_details <- function(data = NULL) {
 
   data$Application %>%
     filter(grepl("CPU|CUDA", .data$ResourceId)) %>%
-    select(.data$Node, .data$Resource, .data$ResourceType, .data$Duration, .data$Value, .data$Position, .data$Height) %>%
+    select("Node", "Resource", "ResourceType", "Duration", "Value", "Position", "Height") %>%
     group_by(.data$Node) %>%
     do(abe_cpu_cuda_details(.data, Colors = data$Colors)) %>%
     ungroup()
@@ -231,23 +231,23 @@ hl_global_cpb <- function(data = NULL) {
   # Create the structure necessary for calling the Rcpp CPB function
   dfdag %>%
     # Select only the necessary information
-    select(.data$JobId, .data$Dependent, .data$Start, .data$Cost, .data$Value) %>%
+    select("JobId", "Dependent", "Start", "Cost", "Value") %>%
     # Change to the appropriate data type to enable left_join
     mutate(JobId = as.character(.data$JobId)) %>%
     # Merge with identifiers so the JobId gets an unique id
     left_join(identifiers, by = c("JobId" = "JobId")) %>%
     # Rename the new column
-    rename(JobIdIntU = .data$JobIdInt) %>%
+    rename(JobIdIntU = "JobIdInt") %>%
     # Merge with identifiers _again_ so the Dependent gets an unique id
     left_join(identifiers, by = c("Dependent" = "JobId")) %>%
     # Rename the new column _again_
-    rename(DepIntU = .data$JobIdInt) %>%
+    rename(DepIntU = "JobIdInt") %>%
     # Re-ordering
-    select(.data$JobId, .data$JobIdIntU, .data$Dependent, .data$DepIntU, .data$Start, .data$Cost, .data$Value) %>%
+    select("JobId", "JobIdIntU", "Dependent", "DepIntU", "Start", "Cost", "Value") %>%
     # Rename things
     rename(
-      JobIdStr = .data$JobId, DepStr = .data$Dependent,
-      JobId = .data$JobIdIntU, Dependent = .data$DepIntU
+      JobIdStr = "JobId", DepStr = "Dependent",
+      JobId = "JobIdIntU", Dependent = "DepIntU"
     ) %>%
     as_tibble() -> appdagcost
 
@@ -293,7 +293,7 @@ hl_global_abe <- function(dfw = NULL) {
 
   dfw %>%
     filter(grepl("CPU|CUDA", .data$ResourceId)) %>%
-    select(.data$Node, .data$Resource, .data$ResourceType, .data$Duration, .data$Value, .data$Position, .data$Height) %>%
+    select("Node", "Resource", "ResourceType", "Duration", "Value", "Position", "Height") %>%
     do(abe_cpu_cuda(.data)) -> globalABE
 
   return(globalABE)
@@ -374,7 +374,7 @@ geom_makespan <- function(dfw = NULL, bsize = 22) {
     max()
   starvz_log(paste("Makespan is", tend))
   height <- dfw %>%
-    select(.data$Position) %>%
+    select("Position") %>%
     na.omit() %>%
     pull(.data$Position) %>%
     max()
@@ -419,17 +419,17 @@ geom_cpb <- function(data = NULL) {
 geom_cpb_internal <- function(dfw = NULL, value = NULL, desc = NULL, bsize = 22) {
   if (!is.null(value) && !is.null(desc)) {
     minPos <- dfw %>%
-      select(.data$Position) %>%
+      select("Position") %>%
       na.omit() %>%
       pull(.data$Position) %>%
       min()
     maxPos <- dfw %>%
-      select(.data$Position) %>%
+      select("Position") %>%
       na.omit() %>%
       pull(.data$Position) %>%
       max()
     corr <- dfw %>%
-      select(.data$Height) %>%
+      select("Height") %>%
       na.omit() %>%
       pull(.data$Height) %>%
       min()
@@ -448,7 +448,7 @@ geom_cpb_internal <- function(dfw = NULL, value = NULL, desc = NULL, bsize = 22)
           y = .data$y,
           yend = .data$yend
         ),
-        size = 5,
+        linewidth = 5,
         alpha = .7,
         color = "gray"
       ),
@@ -500,7 +500,7 @@ geom_abe_internal <- function(pernodeABEdf = NULL,
           x = .data$Result, xend = .data$Result,
           y = .data$MinPosition, yend = .data$MaxPosition
         ),
-        size = abesize, alpha = .7, color = bar_color
+        linewidth = abesize, alpha = .7, color = bar_color
       )
     )
     if (text) {
@@ -562,7 +562,7 @@ panel_abe_solution <- function(data,
 
 starpu_freq_abe_all_info <- function(tasks_per_node, resources_extra_info) {
   resources_extra_info %>%
-    select(.data$ResourceType, .data$codelet) %>%
+    select("ResourceType", "codelet") %>%
     unique() %>%
     arrange(.data$codelet) -> codelet_combination
 
@@ -571,7 +571,7 @@ starpu_freq_abe_all_info <- function(tasks_per_node, resources_extra_info) {
   f.obj <- c(rep(0, number_codelet_combination), 1)
 
   codelets <- codelet_combination %>%
-    select(.data$codelet) %>%
+    select("codelet") %>%
     unique() %>%
     .$codelet
 
@@ -588,7 +588,7 @@ starpu_freq_abe_all_info <- function(tasks_per_node, resources_extra_info) {
 
   types <- resources_extra_info %>%
     arrange(.data$codelet) %>%
-    select(.data$ResourceType) %>%
+    select("ResourceType") %>%
     unique() %>%
     .$ResourceType
 

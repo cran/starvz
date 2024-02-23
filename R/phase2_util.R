@@ -1,8 +1,13 @@
 #' @include starvz_data.R
 
 check_arrow <- function() {
-  if (!arrow_available()) {
-    starvz_warn("R package arrow was not property installed, use: install_arrow()")
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    msg <- paste(
+      "The 'arrow' package is required but is not available. Install it with:",
+      'install.packages("arrow", repos = c("https://p3m.dev/cran/2024-02-02", getOption("repos")))',
+      sep = "\n"
+    )
+    stop(msg, call. = FALSE)
   }
 }
 
@@ -17,11 +22,12 @@ extract_colors <- function(dfw = NULL, colors = NULL) {
   dfw <- dfw %>% ungroup()
 
   dfw %>%
-    select(.data$Value) %>%
+    select("Value") %>%
     unique() %>%
+    arrange(.data$Value) %>%
     left_join(colors, by = c("Value")) %>%
     .$Color %>%
-    setNames(dfw %>% select(.data$Value) %>% unique() %>% .$Value)
+    setNames(dfw %>% select("Value") %>% unique() %>% arrange(.data$Value) %>% .$Value)
 }
 
 yconf <- function(dfw = NULL, option = "ALL", Y = NULL, show_mpi = TRUE) {
@@ -38,7 +44,7 @@ yconf <- function(dfw = NULL, option = "ALL", Y = NULL, show_mpi = TRUE) {
   if (option == "1CPU_per_NODE") { # First
     # One CPU per node
     y_conf <- dfw %>%
-      select(.data$Node, .data$ResourceId, .data$ResourceType, .data$Position, .data$Height) %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
       distinct() %>%
       group_by(.data$Node) %>%
       arrange(.data$Node, .data$ResourceId, .data$ResourceType) %>%
@@ -47,7 +53,7 @@ yconf <- function(dfw = NULL, option = "ALL", Y = NULL, show_mpi = TRUE) {
   } else if (option == "1GPU_per_NODE") { # Last
     # One GPU per node
     y_conf <- dfw %>%
-      select(.data$Node, .data$ResourceId, .data$ResourceType, .data$Position, .data$Height) %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
       distinct() %>%
       group_by(.data$Node) %>%
       arrange(.data$Node, .data$ResourceId, .data$ResourceType) %>%
@@ -55,7 +61,7 @@ yconf <- function(dfw = NULL, option = "ALL", Y = NULL, show_mpi = TRUE) {
       ungroup()
   } else if (option == "NODES_only") { # First
     y_conf <- dfw %>%
-      select(.data$Node, .data$ResourceId, .data$ResourceType, .data$Position, .data$Height) %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
       distinct() %>%
       group_by(.data$Node) %>%
       arrange(.data$ResourceId, .data$ResourceType) %>%
@@ -65,7 +71,7 @@ yconf <- function(dfw = NULL, option = "ALL", Y = NULL, show_mpi = TRUE) {
     show_mpi <- FALSE
   } else if (option == "NODES_1_in_10") { # First
     y_conf <- dfw %>%
-      select(.data$Node, .data$ResourceId, .data$ResourceType, .data$Position, .data$Height) %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
       distinct() %>%
       group_by(.data$Node) %>%
       arrange(.data$ResourceId, .data$ResourceType) %>%
@@ -75,16 +81,33 @@ yconf <- function(dfw = NULL, option = "ALL", Y = NULL, show_mpi = TRUE) {
       mutate(Node = as.integer(as.character(.data$Node))) %>%
       arrange(.data$Node) %>%
       slice(seq(1, n(), 10))
+  } else if (option == "1CPU_1GPU") { # First
+    y_conf <- dfw %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
+      distinct() %>%
+      group_by(.data$Node, .data$ResourceType) %>%
+      arrange(.data$ResourceId, .data$ResourceType) %>%
+      slice(1) %>%
+      ungroup()
+    show_mpi <- FALSE
   } else if (option == "ALL") {
     y_conf <- dfw %>%
-      select(.data$Node, .data$ResourceId, .data$ResourceType, .data$Position, .data$Height) %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
       distinct() %>%
       group_by(.data$Node, .data$ResourceType) %>%
       arrange(.data$Node, .data$ResourceId, .data$ResourceType) %>%
       ungroup()
+  } else if (option == "ALL_nompi") {
+    y_conf <- dfw %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
+      distinct() %>%
+      group_by(.data$Node, .data$ResourceType) %>%
+      arrange(.data$Node, .data$ResourceId, .data$ResourceType) %>%
+      ungroup()
+      show_mpi <- FALSE
   } else { # First and Last ("FIRST_LAST") or anything else
     y_conf <- dfw %>%
-      select(.data$Node, .data$ResourceId, .data$ResourceType, .data$Position, .data$Height) %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
       distinct() %>%
       group_by(.data$Node, .data$ResourceType) %>%
       arrange(.data$Node, .data$ResourceId, .data$ResourceType) %>%
@@ -105,7 +128,7 @@ yconf <- function(dfw = NULL, option = "ALL", Y = NULL, show_mpi = TRUE) {
         Node = as.integer(.data$Node),
         ResourceId = as.character(.data$ResourceId)
       ) %>%
-      select(.data$Node, .data$ResourceId, .data$ResourceType, .data$Position, .data$Height) %>%
+      select("Node", "ResourceId", "ResourceType", "Position", "Height") %>%
       bind_rows(y_conf) %>%
       mutate(
         ResourceId = as.factor(.data$ResourceId),
@@ -182,11 +205,9 @@ panel_title <- function(data, title = data$config$title$text) {
 #' panel_model_gflops(data = starvz_sample_sample)
 #' }
 #' @export
-panel_model_gflops <- function(
-                           data,
-                           freeScales = TRUE,
-                           model_type = "LOG_LOG") {
-
+panel_model_gflops <- function(data,
+                               freeScales = TRUE,
+                               model_type = "LOG_LOG") {
   # create the base ggplot object that is enhanced according to the model_type
   model_panel <- data$Application %>%
     filter(.data$Value %in% c("geqrt", "gemqrt", "tpqrt", "tpmqrt")) %>%
@@ -232,11 +253,11 @@ panel_model_gflops <- function(
         data_predict <- suppressWarnings(predict(model, interval = "prediction", level = 0.95))
         data_predict %>%
           tibble(fit_LR = exp(.[, 1]), lwr_LR = exp(.[, 2]), upr_LR = exp(.[, 3])) %>%
-          select(.data$fit_LR, .data$upr_LR, .data$lwr_LR)
+          select("fit_LR", "upr_LR", "lwr_LR")
       })) %>%
-      unnest(c(.data$data, .data$Prediction)) %>%
+      unnest(c("data", "Prediction")) %>%
       ungroup() %>%
-      select(.data$fit_LR, .data$lwr_LR, .data$upr_LR, .data$JobId)
+      select("fit_LR", "lwr_LR", "upr_LR", "JobId")
 
     # fit log models over data
     model_data <- data$Application %>%
@@ -248,8 +269,8 @@ panel_model_gflops <- function(
       nest() %>%
       mutate(model_log = map(.data$data, model_LR_log)) %>%
       ungroup() %>%
-      select(-.data$model_log) %>%
-      unnest(cols = c(.data$data)) %>%
+      select(-"model_log") %>%
+      unnest(cols = c("data")) %>%
       arrange(.data$GFlop)
 
     model_panel <- model_data %>%
@@ -284,8 +305,8 @@ panel_model_gflops <- function(
       mutate(predictValue = map(.data$model_log, function(x) {
         exp(predict(x))
       })) %>%
-      select(-.data$model_log) %>%
-      unnest(cols = c(.data$data, .data$predictValue)) %>%
+      select(-"model_log") %>%
+      unnest(cols = c("data", "predictValue")) %>%
       arrange(.data$predictValue)
 
     model_panel <- model_data %>%
@@ -395,7 +416,8 @@ panel_resource_usage_task <- function(data = NULL,
 
   # must expand data frame to make geom_area work properly
   df_plot <- df2 %>%
-    filter(!is.na(.data$Task)) %>% ungroup() %>%
+    filter(!is.na(.data$Task)) %>%
+    ungroup() %>%
     expand(.data$Slice, .data$Task) %>%
     left_join(df2 %>% filter(.data$Value != 0), by = c("Task", "Slice")) %>%
     mutate(Value1 = ifelse(is.na(.data$Value1), 0, .data$Value1))
@@ -440,15 +462,15 @@ panel_resource_usage_task <- function(data = NULL,
 get_resource_utilization <- function(Application = NULL, step = 100) {
   # Arrange data
   df_filter <- Application %>%
-    select(.data$Start, .data$End, .data$Value, .data$JobId) %>%
+    select("Start", "End", "Value", "JobId") %>%
     unique() %>%
-    rename(Task = .data$Value) %>%
+    rename(Task = "Value") %>%
     arrange(.data$Start)
 
   # Get number of workers for resource utilization
   NWorkers <- Application %>%
     filter(grepl("CPU", .data$ResourceType) | grepl("CUDA", .data$ResourceType)) %>%
-    select(.data$ResourceId) %>%
+    select("ResourceId") %>%
     unique() %>%
     nrow()
 
@@ -464,11 +486,11 @@ get_resource_utilization <- function(Application = NULL, step = 100) {
 
   # Do the time aggregation of resource utilization
   data_node_plot <- data_node_parallelism %>%
-    select(.data$Task, .data$Time, .data$parallelism) %>%
+    select("Task", "Time", "parallelism") %>%
     arrange(.data$Time) %>%
     mutate(End = lead(.data$Time)) %>%
     mutate(Duration = .data$End - .data$Time) %>%
-    rename(Start = .data$Time, Value = .data$parallelism) %>%
+    rename(Start = "Time", Value = "parallelism") %>%
     na.omit() %>%
     group_by(.data$Task) %>%
     do(remyTimeIntegrationPrepNoDivision(., myStep = step)) %>%
@@ -545,7 +567,7 @@ panel_gflops_computed_difference <- function(data1 = NULL,
   # calculate the actual difference in the total computed GFlops
   data_diff_line <- data_gflop %>%
     mutate(GFlopDiff = cumsum(.data$GFlop)) %>%
-    select(.data$Start, .data$End, .data$GFlopDiff) %>%
+    select("Start", "End", "GFlopDiff") %>%
     mutate(signal = ifelse(.data$GFlopDiff >= 0, "Faster", "Slower"))
 
   lineplot <- data_diff_line %>%
@@ -589,7 +611,7 @@ statistics_makespan <- function(data) {
     return(NA)
   }
   data$Application %>%
-    select(.data$End) %>%
+    select("End") %>%
     pull(.data$End) %>%
     na.omit() %>%
     max() -> makespan
@@ -610,7 +632,7 @@ statistics_total_tasks_types <- function(data) {
     return(NA)
   }
   data$Application %>%
-    select(.data$Value) %>%
+    select("Value") %>%
     distinct() %>%
     nrow() -> total_tasks_types
   return(total_tasks_types)
@@ -621,7 +643,7 @@ statistics_total_nodes <- function(data) {
     return(NA)
   }
   data$Application %>%
-    select(.data$Node) %>%
+    select("Node") %>%
     distinct() %>%
     nrow() -> total_nodes
   return(total_nodes)
@@ -632,7 +654,7 @@ statistics_total_resources <- function(data) {
     return(NA)
   }
   data$Starpu %>%
-    select(.data$ResourceId) %>%
+    select("ResourceId") %>%
     distinct() %>%
     nrow() -> total_resources
   return(total_resources)
@@ -644,7 +666,7 @@ statistics_total_gpus <- function(data) {
   }
   data$Starpu %>%
     filter(.data$ResourceType == "CUDA") %>%
-    select(.data$ResourceId) %>%
+    select("ResourceId") %>%
     distinct() %>%
     nrow() -> total_gpus
   return(total_gpus)
@@ -656,7 +678,7 @@ statistics_total_cpus <- function(data) {
   }
   data$Starpu %>%
     filter(.data$ResourceType == "CPU") %>%
-    select(.data$ResourceId) %>%
+    select("ResourceId") %>%
     distinct() %>%
     nrow() -> total_cpus
   return(total_cpus)
@@ -682,25 +704,31 @@ statistics_total_idleness <- function(data) {
   return(100.0 - percent_active)
 }
 
-last <- function(data, path){
-	get_last_path(data$Last, path) -> deps
-	ret <- NULL
+last <- function(data, path) {
+  get_last_path(data$Last, path) -> deps
+  ret <- NULL
 
   data$Link %>%
-  filter(.data$Type == "MPI communication") %>%
-  rename(JobId = .data$Key) %>%
-  rename(ResourceId = .data$Dest) %>%
-  select(.data$JobId, .data$Start, .data$End, .data$ResourceId) %>%
-  separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
-  left_join((data$Y %>% select(-.data$Type) %>% mutate(Parent = as.character(.data$Parent))), by = c("ResourceId" = "Parent")) %>%
-  select(.data$JobId, .data$Start, .data$End, .data$Position, .data$Height) %>%
-  bind_rows(data$Application %>% select(.data$JobId, .data$Start, .data$End, .data$Position, .data$Height)) -> all_states
+    filter(.data$Type == "MPI communication") %>%
+    rename(JobId = "Key") %>%
+    rename(ResourceId = "Dest") %>%
+    select("JobId", "Start", "End", "ResourceId") %>%
+    separate(.data$ResourceId, into = c("Node", "Resource"), remove = FALSE, extra = "drop", fill = "right") %>%
+    left_join((data$Y %>% select(-"Type") %>% mutate(Parent = as.character(.data$Parent))), by = c("ResourceId" = "Parent")) %>%
+    select("JobId", "Start", "End", "Position", "Height") %>%
+    bind_rows(data$Application %>% select("JobId", "Start", "End", "Position", "Height")) -> all_states
 
-	data$Last %>% rename(Dependent=.data$Last) %>% select(.data$JobId, .data$Dependent) %>% inner_join(all_states, by=c("JobId"="JobId")) -> app_dep
-	for(i in seq(1, length(deps))){
-	   app_dep %>% filter(.data$JobId %in% deps[[i]]) %>%
-	   mutate(Path = path[i]) %>% arrange(.data$End) %>% bind_rows(ret) -> ret
-	}
+  data$Last %>%
+    rename(Dependent = "Last") %>%
+    select("JobId", "Dependent") %>%
+    inner_join(all_states, by = c("JobId" = "JobId")) -> app_dep
+  for (i in seq(1, length(deps))) {
+    app_dep %>%
+      filter(.data$JobId %in% deps[[i]]) %>%
+      mutate(Path = path[i]) %>%
+      arrange(.data$End) %>%
+      bind_rows(ret) -> ret
+  }
 
-	return(ret)
+  return(ret)
 }

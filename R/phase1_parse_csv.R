@@ -39,7 +39,8 @@ read_worker_csv <- function(where = ".",
         X = col_character(),
         Y = col_character(),
         Iteration = col_character(),
-        Subiteration = col_character()
+        Subiteration = col_character(),
+        NumaNodes = col_character()
       )
     ))
   } else {
@@ -47,7 +48,7 @@ read_worker_csv <- function(where = ".",
   }
 
   # Remove Nature and Type (as it always be Worker Node State)
-  dfw <- dfw %>% select(-.data$Nature, -.data$Type)
+  dfw <- dfw %>% select(-"Nature", -"Type")
 
   # Convert To Factor
   dfw <- dfw %>%
@@ -63,7 +64,8 @@ read_worker_csv <- function(where = ".",
       Y = as.integer(.data$Y),
       Iteration = as.integer(.data$Iteration),
       Subiteration = as.integer(.data$Subiteration)
-    ) %>% filter(!is.na(.data$ResourceId))
+    ) %>%
+    filter(!is.na(.data$ResourceId))
 
   if ((dfw %>% nrow()) == 0) stop("After reading worker states, number of rows is zero.")
 
@@ -117,12 +119,12 @@ read_worker_csv <- function(where = ".",
     starvz_log("This is multi-node trace")
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      mutate(ResourceId=as.factor(.data$ResourceId)) %>%
+      mutate(ResourceId = as.factor(.data$ResourceId)) %>%
       separate_res() %>%
       tibble() %>%
       mutate(Resource = as.factor(.data$Resource)) %>%
       mutate(Node = as.factor(.data$Node)) %>%
-      mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
+      mutate(ResourceType = as.factor(gsub("[_[:digit:]]+", "", .data$Resource))) %>%
       mutate(Resource = as.factor(.data$Resource))
   } else {
     starvz_log("This is a single-node trace...")
@@ -138,26 +140,26 @@ read_worker_csv <- function(where = ".",
   # Also BREAK STARPU and Application in two different data frames
   Application <- dfw %>%
     filter(.data$Application == TRUE & !is.na(.data$JobId)) %>%
-    select(-.data$Application)
+    select(-"Application")
   StarPU <- dfw %>%
     filter(.data$Application == FALSE) %>%
     select(
-      -.data$Params, -.data$Footprint, -.data$Application,
-      -.data$Tag,
-      -.data$JobId,
-      -.data$GFlop,
-      -.data$SubmitOrder,
-      -.data$X,
-      -.data$Y,
-      -.data$Iteration,
-      -.data$Subiteration
+      -"Params", -"Footprint", -"Application",
+      -"Tag",
+      -"JobId",
+      -"GFlop",
+      -"SubmitOrder",
+      -"X",
+      -"Y",
+      -"Iteration",
+      -"Subiteration"
     )
 
   # In case application is not specified
   if (whichApplication == "") {
     # Get only application states
     dfcolors <- Application %>%
-      select(.data$Value) %>%
+      select("Value") %>%
       unique()
 
     # Get the number of states to generate colors
@@ -185,7 +187,7 @@ read_worker_csv <- function(where = ".",
           left_join(config_colors, by = "Value") %>%
           mutate(Color = ifelse(is.na(.data$color), .data$Color, .data$color)) %>%
           mutate(Use = ifelse(is.na(.data$use), .data$Use, .data$use)) %>%
-          select(.data$Value, .data$Color, .data$Use)
+          select("Value", "Color", "Use")
       }
     }
   } else {
@@ -200,12 +202,12 @@ read_worker_csv <- function(where = ".",
       return(df)
     }
     dfw %>%
-      select(.data$Value) %>%
+      select("Value") %>%
       unique() -> tasks
 
     # Try to partial Match
     dfcolors <- partial_join(tasks, app_states_fun(), "Value", "Kernel") %>%
-      select(.data$Value, .data$Color, .data$Use)
+      select("Value", "Color", "Use")
   }
   # Apply
   Colors <- dfcolors
@@ -252,7 +254,7 @@ read_worker_csv <- function(where = ".",
 
       # need to create the clusters before calling the function, let's do the clustering for all
       # types of tasks for now, replacing the dummy Cluster variable
-      Application <- Application %>% select(-.data$Cluster)
+      Application <- Application %>% select(-"Cluster")
       Application <- Application %>%
         filter(grepl("qrt", .data$Value)) %>%
         filter(.data$GFlop > 0) %>%
@@ -263,18 +265,18 @@ read_worker_csv <- function(where = ".",
           # pick the best fitted model according to BIC metric
           flexmix::getModel(m, which = "BIC")@cluster
         })) %>%
-        select(-.data$flexmix_model) %>%
-        unnest(cols = c(.data$Cluster, .data$data)) %>%
+        select(-"flexmix_model") %>%
+        unnest(cols = c("Cluster", "data")) %>%
         ungroup() %>%
-        select(.data$JobId, .data$Cluster) %>%
+        select("JobId", "Cluster") %>%
         full_join(Application, by = "JobId")
       Application <- regression_based_outlier_detection(Application, model_LR_log, "_FLEXMIX", level = 0.95)
-    }else{
+    } else {
       starvz_warn("qrmumps can use the suggested package flexmix (that is not installed) to do another outlier classification")
     }
 
     # Use the Outlier_LR_LOG (log~log) as the default Outlier classification
-    Application <- Application %>% rename(Outlier = .data$Outlier_LR_LOG)
+    Application <- Application %>% rename(Outlier = "Outlier_LR_LOG")
   } else {
     starvz_log("Outlier detection using standard model")
     Application <- Application %>%
@@ -328,7 +330,7 @@ read_memory_state_csv <- function(where = ".", ZERO = 0) {
     starvz_warn(paste("File ", csv_file, " do not exist"))
   }
   # Remove Nature and Type (as it always be Memory Node State)
-  dfw <- dfw %>% select(-.data$Nature, -.data$Type)
+  dfw <- dfw %>% select(-"Nature", -"Type")
 
   # Convert To Factor
   dfw <- dfw %>%
@@ -354,7 +356,7 @@ read_memory_state_csv <- function(where = ".", ZERO = 0) {
   if (grepl("CUDA|CPU", unlist(strsplit(firstResourceId, "_"))[2])) {
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      mutate(ResourceId=as.factor(.data$ResourceId)) %>%
+      mutate(ResourceId = as.factor(.data$ResourceId)) %>%
       separate_res() %>%
       tibble() %>%
       mutate(Resource = as.factor(.data$Resource)) %>%
@@ -396,7 +398,7 @@ read_comm_state_csv <- function(where = ".", ZERO = 0) {
     starvz_warn(paste("File ", csv_file, " do not exist"))
   }
   # Remove Nature and Type (as it always be Comm Node State)
-  dfw <- dfw %>% select(-.data$Nature, -.data$Type)
+  dfw <- dfw %>% select(-"Nature", -"Type")
 
   # Convert To Factor
   dfw <- dfw %>%
@@ -422,7 +424,7 @@ read_comm_state_csv <- function(where = ".", ZERO = 0) {
   if (grepl("mpict", unlist(strsplit(firstResourceId, "_"))[2])) {
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      mutate(ResourceId=as.factor(.data$ResourceId)) %>%
+      mutate(ResourceId = as.factor(.data$ResourceId)) %>%
       separate_res() %>%
       tibble() %>%
       mutate(Resource = as.factor(.data$Resource)) %>%
@@ -464,7 +466,7 @@ read_other_state_csv <- function(where = ".", ZERO = 0) {
     starvz_warn(paste("File ", csv_file, " do not exist"))
   }
   # Remove Nature
-  dfw <- dfw %>% select(-.data$Nature)
+  dfw <- dfw %>% select(-"Nature")
 
   # Convert To Factor
   dfw <- dfw %>%
@@ -491,7 +493,7 @@ read_other_state_csv <- function(where = ".", ZERO = 0) {
   if (grepl("CUDA|CPU", unlist(strsplit(firstResourceId, "_"))[2])) {
     # This is the case for multi-node trace
     dfw <- dfw %>%
-      mutate(ResourceId=as.factor(.data$ResourceId)) %>%
+      mutate(ResourceId = as.factor(.data$ResourceId)) %>%
       separate_res() %>%
       tibble() %>%
       mutate(Resource = as.factor(.data$Resource)) %>%
@@ -539,40 +541,40 @@ read_vars_set_new_zero <- function(where = ".", ZERO = 0) {
     head(n = 1)
 
   dfv %>%
-    select(-.data$Nature) %>%
+    select(-"Nature") %>%
     # the new zero because of the long initialization phase
     mutate(Start = .data$Start - ZERO, End = .data$End - ZERO) -> dfv
 
-    # create three new columns (Node, Resource, ResourceType)
-    # This is StarPU-specific
-    if (grepl("CUDA|CPU", unlist(strsplit(firstResourceId, "_"))[2])) {
-      starvz_log("This is multi-node trace")
-      # This is the case for multi-node trace
-      dfv %>%
-        mutate(ResourceId=as.factor(.data$ResourceId)) %>%
-        separate_res() %>%
-        tibble() %>%
-        mutate(Resource = as.factor(.data$Resource)) %>%
-        mutate(Node = as.factor(.data$Node)) %>%
-        mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
-        mutate(Type = as.factor(.data$Type)) -> tmp
-    } else {
-      starvz_log("This is a single-node trace...")
-      # This is the case for SINGLE node trace
-      dfv %>%
-        mutate(Node = as.factor(0)) %>%
-        mutate(Resource = .data$ResourceId) %>%
-        mutate(ResourceType = as.factor(gsub("[_[:digit:]]+", "", .data$ResourceId))) %>%
-        mutate(Type = as.factor(.data$Type)) -> tmp
-    }
+  # create three new columns (Node, Resource, ResourceType)
+  # This is StarPU-specific
+  if (grepl("CUDA|CPU", unlist(strsplit(firstResourceId, "_"))[2])) {
+    starvz_log("This is multi-node trace")
+    # This is the case for multi-node trace
+    dfv %>%
+      mutate(ResourceId = as.factor(.data$ResourceId)) %>%
+      separate_res() %>%
+      tibble() %>%
+      mutate(Resource = as.factor(.data$Resource)) %>%
+      mutate(Node = as.factor(.data$Node)) %>%
+      mutate(ResourceType = as.factor(gsub("[[:digit:]]+", "", .data$Resource))) %>%
+      mutate(Type = as.factor(.data$Type)) -> tmp
+  } else {
+    starvz_log("This is a single-node trace...")
+    # This is the case for SINGLE node trace
+    dfv %>%
+      mutate(Node = as.factor(0)) %>%
+      mutate(Resource = .data$ResourceId) %>%
+      mutate(ResourceType = as.factor(gsub("[_[:digit:]]+", "", .data$ResourceId))) %>%
+      mutate(Type = as.factor(.data$Type)) -> tmp
+  }
 
-    # manually rename variables names
-    tmp %>% mutate(
-      Type = gsub("Number of Ready Tasks", "Ready", .data$Type),
-      Type = gsub("Number of Submitted Uncompleted Tasks", "Submitted", .data$Type),
-      Type = gsub("Bandwidth In \\(MB/s)", "B. In (MB/s)", .data$Type),
-      Type = gsub("Bandwidth Out \\(MB/s)", "B. Out (MB/s)", .data$Type)
-    ) -> dfv
+  # manually rename variables names
+  tmp %>% mutate(
+    Type = gsub("Number of Ready Tasks", "Ready", .data$Type),
+    Type = gsub("Number of Submitted Uncompleted Tasks", "Submitted", .data$Type),
+    Type = gsub("Bandwidth In \\(MB/s)", "B. In (MB/s)", .data$Type),
+    Type = gsub("Bandwidth Out \\(MB/s)", "B. Out (MB/s)", .data$Type)
+  ) -> dfv
   return(dfv)
 }
 
@@ -596,7 +598,7 @@ atree_load <- function(where = ".") {
   }
 
   intermediary_nodes <- df %>%
-    select(.data$Node) %>%
+    select("Node") %>%
     .$Node %>%
     unique()
 
@@ -624,8 +626,9 @@ pmtool_bounds_csv_parser <- function(where = ".", ZERO = 0) {
   entities.csv <- paste0(where, "/pmtool.csv")
 
   if (file.exists(entities.feather)) {
+    check_arrow()
     starvz_log(paste("Reading ", entities.feather))
-    pm <- read_feather(entities.feather)
+    pm <- arrow::read_feather(entities.feather)
   } else if (file.exists(entities.csv)) {
     starvz_log(paste("Reading ", entities.csv))
     pm <- starvz_suppressWarnings(read_csv(entities.csv,
@@ -717,10 +720,10 @@ pmtool_states_csv_parser <- function(where = ".", whichApplication = NULL, Y = N
 
     pm[[3]] <- devices[pm[[3]] + 1]
 
-    pm <- pm %>% left_join((Y %>% select(-.data$Type)), by = c("ResourceId" = "Parent"))
+    pm <- pm %>% left_join((Y %>% select(-"Type")), by = c("ResourceId" = "Parent"))
     # print(States)
     # print(pm)
-    pm <- pm %>% left_join((States %>% select(.data$Iteration, .data$JobId)), by = c("JobId" = "JobId"))
+    pm <- pm %>% left_join((States %>% select("Iteration", "JobId")), by = c("JobId" = "JobId"))
 
     if (whichApplication == "cholesky") {
       pm <- pm %>%
@@ -750,7 +753,7 @@ data_handles_csv_parser <- function(where = ".", ZERO = 0) {
     starvz_log(paste("Reading ", entities.csv))
     pm <- starvz_suppressWarnings(read_csv(entities.csv,
       trim_ws = TRUE,
-      show_col_types=FALSE
+      show_col_types = FALSE
     ))
   } else {
     starvz_log(paste("File", entities.csv, "do not exist."))
@@ -793,8 +796,9 @@ task_handles_parser <- function(where = ".") {
   entities.feather <- paste0(where, "/task_handles.feather")
 
   if (file.exists(entities.feather)) {
+    check_arrow()
     starvz_log(paste("Reading ", entities.feather))
-    ret <- read_feather(entities.feather)
+    ret <- arrow::read_feather(entities.feather)
     return(ret)
   }
 
@@ -847,21 +851,21 @@ tasks_csv_parser <- function(where = ".", ZERO = 0) {
     if ("Handles" %in% names(pm)) {
       # Tasks have multiple handles, get them in a different structure
       handles_dep <- pm %>%
-        select(.data$JobId) %>%
+        select("JobId") %>%
         mutate(
           Handles = strsplit(pm$Handles, " "),
           Modes = strsplit(pm$Modes, " "),
           Sizes = lapply(strsplit(pm$Sizes, " "), as.integer)
         )
       # unnest the lists
-      task_handles <- unnest(handles_dep, cols = c(.data$Handles, .data$Modes, .data$Sizes)) %>%
+      task_handles <- unnest(handles_dep, cols = c("Handles", "Modes", "Sizes")) %>%
         mutate(
           Handles = as.factor(.data$Handles),
           Modes = as.factor(.data$Modes)
         )
 
       # We will save the task_handle structre, we can remove these columns
-      pm <- pm %>% select(-.data$Handles, -.data$Modes, -.data$Sizes)
+      pm <- pm %>% select(-"Handles", -"Modes", -"Sizes")
     }
   } else {
     starvz_log(paste("File", entities.csv, "do not exist."))
@@ -917,14 +921,14 @@ events_csv_parser <- function(where = ".", ZERO = 0) {
         .data$Type != "data state owner", .data$Type != "data state shared",
         .data$Type != "data wont use"
       ) %>%
-      select(.data$Container, .data$Type, .data$Start, .data$Value) %>%
+      select("Container", "Type", "Start", "Value") %>%
       mutate(Value = as.factor(.data$Value))
     # Break in Events Data
     Events_data <- pm %>%
       filter(.data$Type == "data registration" | .data$Type == "data state invalid" |
         .data$Type == "data state owner" | .data$Type == "data state shared" |
         .data$Type == "data wont use") %>%
-      select(.data$Container, .data$Type, .data$Start, .data$Value) %>%
+      select("Container", "Type", "Start", "Value") %>%
       mutate(Value = as.factor(.data$Value))
     Events_memory <- pm %>%
       filter(.data$Type == "Allocating Async Start" | .data$Type == "Allocating Async End" |
@@ -934,9 +938,9 @@ events_csv_parser <- function(where = ".", ZERO = 0) {
         .data$Type == "Free Start" | .data$Type == "Free End" |
         .data$Type == "Request Created") %>%
       select(
-        .data$Container, .data$Type, .data$Start,
-        .data$Value, .data$Handle, .data$Info,
-        .data$Size, .data$Tid, .data$Src
+        "Container", "Type", "Start",
+        "Value", "Handle", "Info",
+        "Size", "Tid", "Src"
       ) %>%
       mutate(
         Value = as.factor(.data$Value),
@@ -983,7 +987,7 @@ read_dag <- function(where = ".", Application = NULL, dfl = NULL) {
   # Read the DAG in the CSV format, do some clean-ups
   dfdag <- dfdag %>%
     # Put in the right order
-    select(.data$JobId, .data$Dependent) %>%
+    select("JobId", "Dependent") %>%
     # Communication task ids have too much information, clean-up both columns (JobId, Dependent)
     mutate(JobId = gsub("mpi_.*_", "mpicom_", .data$JobId)) %>%
     mutate(Dependent = gsub("mpi_.*_", "mpicom_", .data$Dependent))
@@ -1011,10 +1015,10 @@ read_dag <- function(where = ".", Application = NULL, dfl = NULL) {
       full_join(dfl, by = c("JobId" = "Key")) %>%
       # Align columns with state-based tasks
       # 1. Remove columns
-      select(-.data$Container, -.data$Origin) %>%
+      select(-"Container", -"Origin") %>%
       # 2. Dest becomes ResourceId for these MPI tasks
-      rename(ResourceId = .data$Dest) %>%
-      mutate(ResourceId=as.factor(.data$ResourceId)) %>%
+      rename(ResourceId = "Dest") %>%
+      mutate(ResourceId = as.factor(.data$ResourceId)) %>%
       separate_res() %>%
       tibble() %>%
       mutate(Resource = as.factor(.data$Resource)) %>%
@@ -1031,7 +1035,7 @@ read_dag <- function(where = ".", Application = NULL, dfl = NULL) {
     # Calculate the cost as the inverse of the duration (so boost's CPB code can work)
     mutate(Cost = ifelse(is.na(.data$Duration), 0, -.data$Duration)) %>%
     # Force the result as tibble for performance reasons
-    select(.data$JobId, .data$Dependent, .data$Start, .data$End, .data$Cost, .data$Value) %>%
+    select("JobId", "Dependent", "Start", "End", "Cost", "Value") %>%
     as_tibble()
 }
 
@@ -1078,7 +1082,7 @@ read_links <- function(where = ".", ZERO = 0) {
     add_column(!!!all_cols[!names(all_cols) %in% names(.)]) %>%
     # the new zero because of the long initialization phase
     mutate(Start = .data$Start - ZERO, End = .data$End - ZERO) %>%
-    select(-.data$Nature) %>%
+    select(-"Nature") %>%
     mutate(
       Container = as.factor(.data$Container),
       Type = as.factor(.data$Type),

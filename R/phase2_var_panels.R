@@ -27,7 +27,6 @@ panel_ready <- function(data, legend = data$config$ready$legend,
                         y_end = data$config$ready$limit,
                         step = data$config$ready$step,
                         lack_ready = data$config$ready$lack_ready$active) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE
@@ -87,7 +86,7 @@ panel_ready <- function(data, legend = data$config$ready$legend,
   # add the lack ready tasks area inside the ready tasks panel
   if (lack_ready) {
     data$Starpu %>%
-      select(.data$Node, .data$Resource) %>%
+      select("Node", "Resource") %>%
       unique() %>%
       group_by(.data$Node) %>%
       summarize(N = n()) %>%
@@ -106,7 +105,7 @@ panel_ready <- function(data, legend = data$config$ready$legend,
       group_by(.data$Type, .data$Node, .data$ResourceType, .data$Start, .data$End, .data$Duration) %>%
       summarize(Value = sum(.data$Value), N = n()) %>%
       ungroup() %>%
-      rename(ResourceId = .data$Node) %>%
+      rename(ResourceId = "Node") %>%
       filter(.data$Value < threshold) %>%
       group_by(.data$Type, .data$Start, .data$End) %>%
       summarize(Value = n()) %>%
@@ -166,7 +165,6 @@ panel_submitted <- function(data, legend = data$config$submitted$legend,
                             y_start = 0,
                             y_end = data$config$submitted$limit,
                             step = data$config$submitted$step) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE
@@ -249,7 +247,6 @@ panel_usedmemory <- function(data, legend = data$config$usedmemory$legend,
                              y_start = 0,
                              y_end = data$config$usedmemory$limit,
                              step = data$config$usedmemory$step) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE
@@ -334,7 +331,6 @@ panel_gflops <- function(data, legend = data$config$gflops$legend,
                          y_start = 0,
                          y_end = data$config$gflops$limit,
                          step = data$config$gflops$step) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE
@@ -419,7 +415,6 @@ panel_gpubandwidth <- function(data, legend = data$config$gpubandwidth$legend,
                                y_end = data$config$gpubandwidth$limit,
                                step = data$config$gpubandwidth$step,
                                total = data$config$gpubandwidth$total) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE
@@ -482,7 +477,7 @@ panel_gpubandwidth <- function(data, legend = data$config$gpubandwidth$legend,
     ms <- bandwidth_data %>%
       group_by(.data$Type, .data$Node, .data$ResourceType, .data$Start, .data$End, .data$Duration) %>%
       summarize(Value = sum(.data$Value), N = n()) %>%
-      rename(ResourceId = .data$Node)
+      rename(ResourceId = "Node")
     y_size <- layer_scales(panel)$y$range$range[2]
     panel <- panel + ms %>% var_chart_text(tstart = x_start, tend = x_end, y_end = y_size)
   }
@@ -517,7 +512,6 @@ panel_mpiconcurrent <- function(data, legend = data$config$mpiconcurrent$legend,
                                 y_start = 0,
                                 y_end = data$config$mpiconcurrent$limit,
                                 step = data$config$mpiconcurrent$step) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE
@@ -607,7 +601,6 @@ panel_mpiconcurrentout <- function(data, legend = data$config$mpiconcurrentout$l
                                    y_start = 0,
                                    y_end = data$config$mpiconcurrentout$limit,
                                    step = data$config$mpiconcurrentout$step) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE
@@ -696,7 +689,6 @@ panel_mpibandwidth <- function(data, legend = data$config$mpibandwidth$legend,
                                y_start = 0,
                                y_end = data$config$mpibandwidth$limit,
                                step = data$config$mpibandwidth$step) {
-
   ## Check for non-valid arguments
   if (is.null(legend) || !is.logical(legend)) {
     legend <- TRUE

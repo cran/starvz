@@ -18,7 +18,7 @@ NULL
 #' @return ggplot object with all starvz plots
 #' @family phase1 functions
 #'
-#' @examples
+#' @examplesIf requireNamespace("arrow", quietly = TRUE)
 #' \donttest{
 #' example_folder <- system.file("extdata", "lu_trace", package = "starvz")
 #' starvz_phase1(directory = example_folder)
@@ -34,8 +34,8 @@ starvz_phase1 <- function(directory = ".", app_states_fun = lu_colors,
   # If it is still not available, it will use a default one
   if (!is.null(config_file)) {
     config <- starvz_read_config(config_file)
-  }else{
-    config <- starvz_read_config(file.path(directory, "config.yaml"), warn=FALSE)
+  } else {
+    config <- starvz_read_config(file.path(directory, "config.yaml"), warn = FALSE)
   }
 
   # Read entities.csv and register the hierarchy (with Y coordinates)
@@ -53,11 +53,11 @@ starvz_phase1 <- function(directory = ".", app_states_fun = lu_colors,
   )
   Worker$Application <- Worker$Application %>%
     hl_y_coordinates(dfhie = dfhie) %>%
-    select(-.data$Type)
+    select(-"Type")
 
   Worker$StarPU <- Worker$StarPU %>%
     hl_y_coordinates(dfhie = dfhie) %>%
-    select(-.data$Type)
+    select(-"Type")
 
   if (Worker$Application %>% nrow() == 0) stop("After reading states, number of application rows is zero.")
 
@@ -93,8 +93,8 @@ starvz_phase1 <- function(directory = ".", app_states_fun = lu_colors,
   # to hold Y coordinates for the temporal elimination tree plot
   if (!is.null(dfa)) {
     dfap <- dfa %>%
-      select(-.data$Parent, -.data$Depth) %>%
-      rename(Height.ANode = .data$Height, Position.ANode = .data$Position)
+      select(-"Parent", -"Depth") %>%
+      rename(Height.ANode = "Height", Position.ANode = "Position")
     Worker$Application <- Worker$Application %>% left_join(dfap, by = "ANode")
     dfap <- NULL
     # Reorder the elimination tree
@@ -126,7 +126,7 @@ starvz_phase1 <- function(directory = ".", app_states_fun = lu_colors,
   )
 
   starvz_log("Call Gaps.")
-  data$Gaps <- NULL #gaps(data)
+  data$Gaps <- NULL # gaps(data)
 
   starvz_log("Call Latest.")
   data$Last <- compute_all_last(data)
@@ -155,7 +155,9 @@ isolate_read_write <- function(input.parquet, fun, name, directory, ZERO) {
 
 isolate_read_write_m <- function(input.parquet, fun, directory, ZERO) {
   data <- fun(where = directory, ZERO = ZERO)
-  if(is.null(data))return(NULL)
+  if (is.null(data)) {
+    return(NULL)
+  }
   if (input.parquet == "1") {
     starvz_log("Saving as parquet")
     starvz_write_parquet(data, directory = directory)
@@ -208,11 +210,10 @@ atree_to_df <- function(node) {
 }
 
 reorder_elimination_tree <- function(Atree, Application) {
-
   # Reorganize tree Position, consider only not pruned nodes and submission order
   data_reorder <- Application %>%
     filter(grepl("qrt", .data$Value)) %>%
-    select(.data$ANode, .data$SubmitOrder) %>%
+    select("ANode", "SubmitOrder") %>%
     unique() %>%
     group_by(.data$ANode) %>%
     mutate(SubmitOrder = as.integer(.data$SubmitOrder)) %>%
@@ -221,35 +222,36 @@ reorder_elimination_tree <- function(Atree, Application) {
     ungroup() %>%
     arrange(.data$SubmitOrder) %>%
     mutate(Position = 1:n(), Height = 1) %>%
-    select(-.data$SubmitOrder)
+    select(-"SubmitOrder")
 
   Atree <- Atree %>%
     # Replace Position and Height by new ordering
-    select(-.data$Position, -.data$Height) %>%
+    select(-"Position", -"Height") %>%
     left_join(data_reorder, by = "ANode")
 
   # Define Position for pruned nodes as the same of its Parent
   data_pruned_position <- Application %>%
     filter(grepl("qrt", .data$Value) | grepl("do_subtree", .data$Value)) %>%
     mutate(NodeType = case_when(.data$Value == "do_subtree" ~ "Pruned", TRUE ~ "Not Pruned")) %>%
-    select(-.data$Position, -.data$Height) %>%
+    select(-"Position", -"Height") %>%
     left_join(Atree, by = "ANode") %>%
-    select(.data$ANode, .data$Parent, .data$NodeType, .data$Position, .data$Height) %>%
+    select("ANode", "Parent", "NodeType", "Position", "Height") %>%
     unique() %>%
-    left_join(Atree %>%
-      select(.data$ANode, .data$Position, .data$Height),
-    by = c("Parent" = "ANode"), suffix = c("", ".Parent")
+    left_join(
+      Atree %>%
+        select("ANode", "Position", "Height"),
+      by = c("Parent" = "ANode"), suffix = c("", ".Parent")
     ) %>%
     # pruned child node have the same position as its father
     mutate(
       Position = case_when(.data$NodeType == "Pruned" ~ .data$Position.Parent, TRUE ~ .data$Position),
       Height = case_when(.data$NodeType == "Pruned" ~ .data$Height.Parent, TRUE ~ .data$Height)
     ) %>%
-    select(-.data$Parent, -.data$Position.Parent, -.data$Height.Parent)
+    select(-"Parent", -"Position.Parent", -"Height.Parent")
 
   Atree <- Atree %>%
     # Replace Position and Height for pruned nodes
-    select(-.data$Position, -.data$Height) %>%
+    select(-"Position", -"Height") %>%
     left_join(data_pruned_position, by = "ANode")
 
   return(Atree)
@@ -260,8 +262,9 @@ hl_y_paje_tree <- function(where = ".") {
   entities.csv <- paste0(where, "/entities.csv")
 
   if (file.exists(entities.feather)) {
+    check_arrow()
     starvz_log(paste("Reading ", entities.feather))
-    dfe <- read_feather(entities.feather)
+    dfe <- arrow::read_feather(entities.feather)
   } else if (file.exists(entities.csv)) {
     starvz_log(paste("Reading ", entities.csv))
     dfe <- starvz_suppressWarnings(read_csv(entities.csv,
@@ -299,7 +302,7 @@ hl_y_paje_tree <- function(where = ".") {
 
   # print(workertree, "Type", "Nature", "H", "P", limit=200);
   # Convert back to data frame
-  workertreedf <- dt_to_df(workertree) %>% select(-.data$Nature)
+  workertreedf <- dt_to_df(workertree) %>% select(-"Nature")
 
   if ((workertreedf %>% nrow()) == 0) stop("After converting the tree back to DF, number of rows is zero.")
 
@@ -432,11 +435,11 @@ gaps.f_backward <- function(data) {
     data$Dag -> tmpdag
   }
   tmpdag %>%
-    rename(DepChain = .data$JobId, Member = .data$Dependent) %>%
-    select(.data$DepChain, .data$Member) -> seedchain
+    rename(DepChain = "JobId", Member = "Dependent") %>%
+    select("DepChain", "Member") -> seedchain
 
   f2 <- function(dfdag, chain.i) {
-    dfdag %>% select(.data$JobId, .data$Dependent, .data$Application, .data$Value) -> full.i
+    dfdag %>% select("JobId", "Dependent", "Application", "Value") -> full.i
     # qr mumps has duplicated data in these dfs and the left_join did not work correctly. unique() solves this problem
     full.i %>% unique() -> full.i
     chain.i %>% unique() -> chain.i
@@ -447,8 +450,8 @@ gaps.f_backward <- function(data) {
       # Prepare the new chain
       full.o %>%
         filter(!is.na(.data$DepChain)) %>%
-        rename(Member = .data$Dependent) %>%
-        select(.data$DepChain, .data$Member) -> chain.o
+        rename(Member = "Dependent") %>%
+        select("DepChain", "Member") -> chain.o
       return(f2(full.o, chain.o))
     } else {
       return(full.o)
@@ -466,11 +469,11 @@ gaps.f_forward <- function(data) {
     data$Dag -> tmpdag
   }
   tmpdag %>%
-    rename(DepChain = .data$Dependent, Member = .data$JobId) %>%
-    select(.data$DepChain, .data$Member) -> seedchain
+    rename(DepChain = "Dependent", Member = "JobId") %>%
+    select("DepChain", "Member") -> seedchain
 
   f2 <- function(dfdag, chain.i) {
-    dfdag %>% select(.data$JobId, .data$Dependent, .data$Application, .data$Value) -> full.i
+    dfdag %>% select("JobId", "Dependent", "Application", "Value") -> full.i
     # qr mumps has duplicated data in these dfs and the left_join did not work correctly. unique() solves this problem
     full.i %>% unique() -> full.i
     chain.i %>% unique() -> chain.i
@@ -481,8 +484,8 @@ gaps.f_forward <- function(data) {
       # Prepare the new chain
       full.o %>%
         filter(!is.na(.data$DepChain)) %>%
-        rename(Member = .data$JobId) %>%
-        select(.data$DepChain, .data$Member) -> chain.o
+        rename(Member = "JobId") %>%
+        select("DepChain", "Member") -> chain.o
       if (nrow(chain.o) > 0) {
         return(f2(full.o, chain.o))
       }
@@ -505,26 +508,26 @@ gaps <- function(data) {
 
   gaps.f_backward(data) %>%
     filter(!is.na(.data$DepChain)) %>%
-    select(.data$JobId, .data$DepChain) %>%
-    rename(Dependent = .data$JobId) %>%
-    rename(JobId = .data$DepChain) %>%
-    select(.data$JobId, .data$Dependent) %>%
+    select("JobId", "DepChain") %>%
+    rename(Dependent = "JobId") %>%
+    rename(JobId = "DepChain") %>%
+    select("JobId", "Dependent") %>%
     unique() -> data.b
 
   gaps.f_forward(data) %>%
     filter(!is.na(.data$DepChain)) %>%
-    select(.data$JobId, .data$DepChain) %>%
-    rename(Dependent = .data$DepChain) %>%
-    select(.data$JobId, .data$Dependent) %>%
+    select("JobId", "DepChain") %>%
+    rename(Dependent = "DepChain") %>%
+    select("JobId", "Dependent") %>%
     unique() -> data.f
 
   data$Dag %>%
     filter(.data$Application == TRUE) %>%
-    select(.data$JobId, .data$Dependent) -> data.z
+    select("JobId", "Dependent") -> data.z
 
   # Create the new gaps Dag
   dfw <- data$Application %>%
-    select(.data$JobId, .data$Value, .data$ResourceId, .data$Node, .data$Start, .data$End)
+    select("JobId", "Value", "ResourceId", "Node", "Start", "End")
   if (is.null(data$Link)) {
     dfl <- data.frame()
     data.b.dag <- data.frame()
@@ -533,8 +536,8 @@ gaps <- function(data) {
     dfl <- data$Link %>%
       filter(grepl("mpicom", .data$Key)) %>%
       mutate(Value = NA, ResourceId = .data$Origin, Node = NA) %>%
-      rename(JobId = .data$Key) %>%
-      select(.data$JobId, .data$Value, .data$ResourceId, .data$Node, .data$Start, .data$End)
+      rename(JobId = "Key") %>%
+      select("JobId", "Value", "ResourceId", "Node", "Start", "End")
     data.b %>%
       left_join(dfl, by = c("JobId" = "JobId")) %>%
       left_join(dfw, by = c("Dependent" = "JobId")) %>%
@@ -554,15 +557,18 @@ gaps <- function(data) {
   return(bind_rows(data.z.dag, data.b.dag, data.f.dag))
 }
 
-compute_all_last <- function(data){
-  filtered_dag <- data$Dag %>% select(.data$JobId, .data$Dependent, .data$Start, .data$End, .data$Cost, .data$Value) %>%
-                  mutate(JobId = as.character(.data$JobId), Dependent = as.character(.data$Dependent))
+compute_all_last <- function(data) {
+  filtered_dag <- data$Dag %>%
+    select("JobId", "Dependent", "Start", "End", "Cost", "Value") %>%
+    mutate(JobId = as.character(.data$JobId), Dependent = as.character(.data$Dependent))
 
   all_levels <- unique(c(filtered_dag$JobId, filtered_dag$Dependent))
 
   filtered_dag %>%
-  mutate(JobId = factor(.data$JobId, levels=all_levels),
-         Dependent = factor(.data$Dependent, levels=all_levels)) -> filtered_dag
+    mutate(
+      JobId = factor(.data$JobId, levels = all_levels),
+      Dependent = factor(.data$Dependent, levels = all_levels)
+    ) -> filtered_dag
 
   return(last_task_c(filtered_dag) %>% tibble())
 }

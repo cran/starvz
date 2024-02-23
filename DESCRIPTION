@@ -1,6 +1,6 @@
 Package: starvz
 Title: R-Based Visualization Techniques for Task-Based Applications
-Version: 0.7.1
+Version: 0.8.0
 Authors@R: c(
     person("Lucas Mello Schnorr", email = "schnorr@inf.ufrgs.br", role = c("aut", "ths"), comment = c(ORCID = "0000-0003-4828-9942")),
     person("Vinicius Garcia Pinto", email = "vgpinto@inf.ufrgs.br", role = c("aut"), comment = c(ORCID = "0000-0002-6845-9358")),
@@ -27,26 +27,28 @@ Depends: R (>= 3.6.0)
 Imports: methods, grDevices, stats, utils, magrittr, dplyr, ggplot2,
         tibble, rlang, tidyr, patchwork, purrr, readr (>= 1.4.0),
         stringr, yaml, lpSolve, gtools, data.tree, RColorBrewer, zoo,
-        Rcpp, arrow (>= 3.0.0)
+        Rcpp
 License: GPL-3
 Encoding: UTF-8
 SystemRequirements: C++, arrow package with gzip codec, StarPU
 LazyData: true
 LinkingTo: Rcpp (>= 1.0.6), BH
-RoxygenNote: 7.1.1
+RoxygenNote: 7.2.3
 Collate: 'RcppExports.R' 'starvz_data.R' 'phase1.R' 'phase1_outlier.R'
         'phase1_parse_csv.R' 'phase2.R' 'phase2_aggregation.R'
         'phase2_applications.R' 'phase2_atree.R' 'phase2_config.R'
         'phase2_events.R' 'phase2_gaps.R' 'phase2_imbalance.R'
         'phase2_kchart.R' 'phase2_lackready.R' 'phase2_memory.R'
         'phase2_metrics.R' 'phase2_mpi.R' 'phase2_node_summary.R'
-        'phase2_pmtool.R' 'phase2_states_chart.R' 'phase2_themes.R'
-        'phase2_time_integration.R' 'phase2_util.R'
+        'phase2_pmtool.R' 'phase2_progress.R' 'phase2_states_chart.R'
+        'phase2_themes.R' 'phase2_time_integration.R' 'phase2_util.R'
         'phase2_var_chart.R' 'phase2_var_panels.R' 'read_functions.R'
         'write_functions.R'
-Suggests: testthat, flexmix, car, viridis
+Suggests: arrow (>= 3.0.0), testthat, flexmix, car, viridis, ggrepel,
+        mclust
+Additional_repositories: https://p3m.dev/cran/2024-02-02
 NeedsCompilation: yes
-Packaged: 2022-02-11 13:17:18 UTC; llnesi
+Packaged: 2024-02-09 13:03:24 UTC; llnesi
 Author: Lucas Mello Schnorr [aut, ths]
     (<https://orcid.org/0000-0003-4828-9942>),
   Vinicius Garcia Pinto [aut] (<https://orcid.org/0000-0002-6845-9358>),
@@ -58,4 +60,4 @@ Author: Lucas Mello Schnorr [aut, ths]
   Rémy Drouilhet [ctb]
 Maintainer: Lucas Leandro Nesi <lucas.nesi@inf.ufrgs.br>
 Repository: CRAN
-Date/Publication: 2022-02-13 13:00:05 UTC
+Date/Publication: 2024-02-23 23:50:02 UTC

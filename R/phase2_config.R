@@ -21,7 +21,7 @@ starvz_read_config <- function(file = NULL, warn = TRUE) {
     starvz_log("Using default config")
     return(defaut_config)
   } else if (!file.exists(file)) {
-    if(warn) starvz_warn(paste0("StarVZ yaml configuration file [", file, "] doesn't exist, using default"))
+    if (warn) starvz_warn(paste0("StarVZ yaml configuration file [", file, "] doesn't exist, using default"))
     return(defaut_config)
   } else {
     config <- yaml::read_yaml(file)
@@ -108,6 +108,7 @@ starvz_default_config <- function() {
   config$st$abe$text <- TRUE
   config$st$abe$label <- TRUE
   config$st$alpha <- 0.5
+  config$st$drop_small <- 0.0
 
   config$summary_nodes$active <- FALSE
   config$summary_nodes$legend <- FALSE
