@@ -1,4 +1,4 @@
-c55a7ea9fd80d2dac7641d75930e00e8 *DESCRIPTION
+d227ef2f2cf3f3982db228a3f2bbffb6 *DESCRIPTION
 5ef3d064841f1ddbc74bfeef43b7ae93 *NAMESPACE
 e97c78b49c83f152a321aa2190ed0e86 *R/RcppExports.R
 3e51ea105ca9a138f58f4b19d65c12c3 *R/phase1.R
@@ -26,7 +26,7 @@ db4d4b0ab2c080758e260d3d8717ca51 *R/phase2_time_integration.R
 e304826b7e6c04f19a59966e964388d1 *R/phase2_util.R
 ad1c24cc837239d67c3f68f93fbe6ade *R/phase2_var_chart.R
 2367f90cdccdd9e4c15620209132a493 *R/phase2_var_panels.R
-7e06112083e5d8ec3bcf5cee3078f8da *R/read_functions.R
+1477bafe8fd4574d48ac28954bc1b7dd *R/read_functions.R
 37f347841b0b28fd68998b2be08ee117 *R/starvz_data.R
 98100bd540fad05bb4e5523b6f9ba306 *R/write_functions.R
 23830665acadfa917324811cb27b8a86 *data/starvz_sample_lu.rda
@@ -134,5 +134,5 @@ b5267f8e91127c428411cf79c054d661 *man/summary.starvz_data.Rd
 b6ee57e03675bd251356934e6f466590 *src/separate_res.cpp
 69ba04438799b5b60b6cec5846445b83 *src/shortest_path.cpp
 490f94fb3e23c3b3085d02027758c990 *tests/testthat.R
-146485d510ad46b0ec6ffcaa52eca37a *tests/testthat/test_lu.R
-05e76535195f92df4463e4d244143a99 *tests/testthat/test_qr.R
+4ba644ffe748345702a9a200ff90ceff *tests/testthat/test_lu.R
+9f7a9247199b21afbbbcd0276412370b *tests/testthat/test_qr.R
