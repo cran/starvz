@@ -1,6 +1,6 @@
 Package: starvz
 Title: R-Based Visualization Techniques for Task-Based Applications
-Version: 0.8.3
+Version: 0.8.4
 Authors@R: c(
     person("Lucas", "Mello Schnorr", email = "schnorr@inf.ufrgs.br", role = c("aut", "ths"), comment = c(ORCID = "0000-0003-4828-9942")),
     person("Vinicius", "Garcia Pinto", email = "vinicius.pinto@furg.br", role = c("aut", "cre"), comment = c(ORCID = "0000-0002-6845-9358")),
@@ -30,10 +30,10 @@ Imports: methods, grDevices, stats, utils, magrittr, dplyr, ggplot2,
         Rcpp
 License: GPL-3
 Encoding: UTF-8
-SystemRequirements: C++, arrow package with gzip codec, StarPU
+SystemRequirements: C++17, arrow package with gzip codec, StarPU
 LazyData: true
 LinkingTo: Rcpp (>= 1.0.6), BH
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.2
 Collate: 'RcppExports.R' 'starvz_data.R' 'phase1.R' 'phase1_outlier.R'
         'phase1_parse_csv.R' 'phase2.R' 'phase2_aggregation.R'
         'phase2_applications.R' 'phase2_atree.R' 'phase2_config.R'
@@ -47,7 +47,7 @@ Collate: 'RcppExports.R' 'starvz_data.R' 'phase1.R' 'phase1_outlier.R'
 Suggests: arrow (>= 3.0.0), testthat, flexmix, car, viridis, ggrepel,
         mclust
 NeedsCompilation: yes
-Packaged: 2025-06-18 13:51:24 UTC; root
+Packaged: 2026-02-11 10:43:02 UTC; vgpinto
 Author: Lucas Mello Schnorr [aut, ths] (ORCID:
     <https://orcid.org/0000-0003-4828-9942>),
   Vinicius Garcia Pinto [aut, cre] (ORCID:
@@ -62,4 +62,4 @@ Author: Lucas Mello Schnorr [aut, ths] (ORCID:
   Rémy Drouilhet [ctb]
 Maintainer: Vinicius Garcia Pinto <vinicius.pinto@furg.br>
 Repository: CRAN
-Date/Publication: 2025-06-18 22:00:02 UTC
+Date/Publication: 2026-02-11 11:20:08 UTC
